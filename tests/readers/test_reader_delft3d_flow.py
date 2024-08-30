@@ -30,7 +30,7 @@ class TestDelft3D(unittest.TestCase):
 
     def test_open_datastream(self):
         o = OceanDrift(loglevel=30)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_nc.nc'
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
 
 if __name__ == '__main__':
