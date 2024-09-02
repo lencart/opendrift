@@ -29,8 +29,8 @@ from opendrift.readers.roppy import depth
 
 class Reader(BaseReader, StructuredReader):
     """
-    A reader for ROMS Output files. It can take a single file, a file pattern,
-    a URL or an xarray Dataset.
+    A reader for Delft3D-Flow netCDF Output files. It can take a single file, a
+    file pattern, a URL or an xarray Dataset.
 
     Args:
         :param filename: A single netCDF file, a pattern of files, or a
@@ -41,20 +41,15 @@ class Reader(BaseReader, StructuredReader):
         :param name: Name of reader
         :type name: string, optional
 
-        :param save_interpolator: Whether or not to save the interpolator that
-                                  goes from lon/lat to x/y (calculated in structured.py)
-        :type save_interpolator: bool
+        :param proj4: PROJ.4 string describing projection of data.
+        :type proj4: string, optional
 
-        :param interpolator_filename: If save_interpolator is True, user can
-                                      input this string to control where
-                                      interpolator is saved.
-        :type interpolator_filename: Path, str, optional
 
     Example:
 
     .. code::
 
-       from opendrift.readers.reader_ROMS_native import Reader
+       from opendrift.readers.reader_delft3d_flow_ import Reader
        r = Reader("roms.nc")
 
     Several files can be specified by using a pattern:
@@ -81,35 +76,14 @@ class Reader(BaseReader, StructuredReader):
     """
 
     standard_variable_mapping = {
-    'mask_rho': 'land_binary_mask',
-    'mask_psi': 'land_binary_mask',
-    'h': 'sea_floor_depth_below_sea_level',
-    'zeta': 'sea_surface_height',
-    'u': 'x_sea_water_velocity',
-    'v': 'y_sea_water_velocity',
-    'u_eastward': 'eastward_sea_water_velocity',
-    'v_northward': 'northward_sea_water_velocity',
-    'w': 'upward_sea_water_velocity',
+    'u_rho': 'eastward_sea_water_velocity',
+    'v_rho': 'northward_sea_water_velocity',
+    'w_rho': 'upward_sea_water_velocity',
     'temp': 'sea_water_temperature',
     'salt': 'sea_water_salinity',
-    'uice': 'sea_ice_x_velocity',
-    'vice': 'sea_ice_y_velocity',
-    'aice': 'sea_ice_area_fraction',
-    'hice': 'sea_ice_thickness',
-    'gls': 'turbulent_generic_length_scale',
     'tke': 'turbulent_kinetic_energy',
-    'AKs': 'ocean_vertical_diffusivity',
-    'sustr': 'surface_downward_x_stress',
-    'svstr': 'surface_downward_y_stress',
-    'tair': 'air_temperature',
-    'wspd': 'wind_speed',
-    'uwnd': 'x_wind',
-    'vwnd': 'y_wind',
-    'uwind': 'x_wind',
-    'vwind': 'y_wind',
-    'Uwind': 'x_wind',
-    'Vwind': 'y_wind',
     }
+
     def __init__(self,
         filename=None,
         name=None,
@@ -118,9 +92,15 @@ class Reader(BaseReader, StructuredReader):
         zlevels=None,
         ensemble_member=None,
     ):
+        if self.proj4 is None:
+            self.proj4 = '+proj=latlong'
+            self.projected = False
+        else:
+            self._parse_proj4()
         self._open_datastream(filename=filename,
                               name=name,
                               ensemble_member=ensemble_member)
+        self._map_d3d_variable_names(custom_name_mapping)
 
     def _open_datastream(self,
         filename=None,
@@ -131,7 +111,6 @@ class Reader(BaseReader, StructuredReader):
         namestr = None
         filestr = str(filename)
         if isinstance(filename, xr.Dataset):
-            print("##########OPENING XARRAY#######")
             self.Dataset = filename
             if hasattr(self.Dataset, 'name'):
                 namestr = self.Dataset.name
@@ -140,7 +119,6 @@ class Reader(BaseReader, StructuredReader):
                 # Open file, check that everything is ok
                 logger.info('Opening dataset: ' + filestr)
                 if ('*' in filestr) or ('?' in filestr) or ('[' in filestr):
-                    print("##########OPENING FILE 1#######")
                     logger.info('Opening files with MFDataset')
                     self.Dataset = xr.open_mfdataset(filename,
                                                      data_vars='minimal',
@@ -148,12 +126,10 @@ class Reader(BaseReader, StructuredReader):
                                                      chunks={'time': 1},
                                                      decode_times=False)
                 elif ensemble_member is not None:
-                    print("##########OPENING FILE 2#######")
                     self.Dataset = (xr.open_dataset(filename,
                                                    decode_times=False)
                                    .isel(ensemble_member=ensemble_member))
                 else:
-                    print("##########OPENING FILE 3#######")
                     self.Dataset = xr.open_dataset(filename,
                                                    decode_times=False)
             except Exception as e:
@@ -164,6 +140,52 @@ class Reader(BaseReader, StructuredReader):
             self.name = namestr
         else:
             self.name = filestr
+
+    def _parse_proj4(self):
+        pass
+
+    def _map_d3d_variable_names(self, custom_mapping):
+        self.standard_variable_mapping.update(custom_mapping)
+        # Map ungrouped variables
+
+        # Map grouped variables
+
+    @staticmethod
+    def _get_variable_coordinates(ds, var):
+        """Finds the `ds` xarray dataset coordinate names for the variable
+        `var`.
+
+        Arguments
+        ---------
+        ds: x-array dataset
+            An x-array dataset containing the variable `var`.
+        var: str
+             name of the variable to get the coordinates for.
+
+        Returns
+        -------
+        list:
+            With the coordinates of each of the variable's axis in the same
+            order as `ds[var].dims`.
+        """
+        coord_switch = {'M': 'x', 'N': 'y'}
+        coordsout = list(range(len(ds[var].dims))) # Needs to be in the same
+                                                   # order as dims.
+        for i, dim in enumerate(ds[var].dims):
+            # List the coordinates that have this dimension
+            dimcoords = list(filter(lambda x: dim in ds[x].dims,
+                                   ds.coords.keys()))
+            try:
+                axis = coord_switch[dim[0]] + '-coordinate'
+            except KeyError:
+                # Any other dimension has the same name as the coordinate
+                coordsout[i] = dim
+            else:
+                # Find the coordinate of the correct axis
+                coordsout[i] = list(filter(lambda x: axis in
+                    ds.coords[x].long_name.lower(),
+                    dimcoords))[0]
+        return coordsout
 
     def get_variables(self,
         requested_variables,
@@ -176,4 +198,6 @@ class Reader(BaseReader, StructuredReader):
         start_time = datetime.now()
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
+
+        # Destagger all variables from their grids to rho grid
         pass

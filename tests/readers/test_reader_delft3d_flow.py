@@ -33,6 +33,19 @@ class TestDelft3D(unittest.TestCase):
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
 
+    def test_get_variable_coordinates(self):
+        o = OceanDrift(loglevel=30)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
+        h_coords = myreader._get_variable_coordinates(myreader.Dataset, 'S1')
+        u_coords = myreader._get_variable_coordinates(myreader.Dataset, 'U1')
+        v_coords = myreader._get_variable_coordinates(myreader.Dataset, 'V1')
+        w_coords = myreader._get_variable_coordinates(myreader.Dataset, 'W')
+        assert h_coords == ['time', 'XZ', 'YZ'], h_coords
+        assert u_coords == ['time', 'KMAXOUT_RESTR', 'XCOR', 'YZ'], u_coords
+        assert v_coords == ['time', 'KMAXOUT_RESTR', 'XZ', 'YCOR'], v_coords
+        assert w_coords == ['time', 'KMAXOUT', 'XZ', 'YZ'], w_coords
+
 if __name__ == '__main__':
     unittest.main()
 
