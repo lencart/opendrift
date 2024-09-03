@@ -74,14 +74,21 @@ class Reader(BaseReader, StructuredReader):
         ds = xr.open_dataset(filename, decode_times=False)
         r = Reader(ds)
     """
-
-    standard_variable_mapping = {
-    'u_rho': 'eastward_sea_water_velocity',
-    'v_rho': 'northward_sea_water_velocity',
-    'w_rho': 'upward_sea_water_velocity',
-    'temp': 'sea_water_temperature',
-    'salt': 'sea_water_salinity',
-    'tke': 'turbulent_kinetic_energy',
+    # Standard variable mapping for get_variables. Salinity and temperature
+    # are grouped into dataset variable `R1`. They need to be expanded.
+    self.standard_variable_mapping = {
+        'time'                              : 'time',
+        'longitude'                         : 'XZ',
+        'latitude'                          : 'YZ',
+        'land_binary_mask'                  : 'KCS',
+        'sea_floor_depth_below_sea_level'   : 'DPS0',
+        'sea_surface_height'                : 'S1',
+        'x_sea_water_velocity'              : 'U1',
+        'y_sea_water_velocity'              : 'V1',
+        'upward_sea_water_velocity'         : 'WPHY',
+        'water_density'                     : 'RHO',
+        'sea_water_temperature'             : 'temp',
+        'sea_water_salinity'                : 'salt',
     }
 
     def __init__(self,
@@ -145,11 +152,6 @@ class Reader(BaseReader, StructuredReader):
     def _parse_proj4(self):
         pass
 
-    def _map_d3d_variable_names(self, custom_mapping):
-        self.standard_variable_mapping.update(custom_mapping)
-        # Map ungrouped variables
-
-        # Map grouped variables
 
     @staticmethod
     def _get_variable_coordinates(ds, var):
