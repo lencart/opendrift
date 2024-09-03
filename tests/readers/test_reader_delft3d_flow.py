@@ -46,6 +46,13 @@ class TestDelft3D(unittest.TestCase):
         assert v_coords == ['time', 'KMAXOUT_RESTR', 'XZ', 'YCOR'], v_coords
         assert w_coords == ['time', 'KMAXOUT', 'XZ', 'YZ'], w_coords
 
+    def test_add_reader(self):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o.add_reader(myreader)
+        
+
 if __name__ == '__main__':
     unittest.main()
 

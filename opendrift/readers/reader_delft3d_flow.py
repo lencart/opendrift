@@ -23,7 +23,7 @@ import numpy as np
 from netCDF4 import num2date
 import xarray as xr
 
-from opendrift.readers.basereader import BaseReader, vector_pairs_xy, StructuredReader
+from opendrift.readers.basereader import BaseReader, StructuredReader
 from opendrift.readers.roppy import depth
 
 
@@ -101,6 +101,7 @@ class Reader(BaseReader, StructuredReader):
                               name=name,
                               ensemble_member=ensemble_member)
         self._map_d3d_variable_names(custom_name_mapping)
+        super().__init__()
 
     def _open_datastream(self,
         filename=None,
