@@ -20,7 +20,7 @@
 import os
 from datetime import datetime
 import unittest
-
+import numpy as np
 
 from opendrift.readers import reader_delft3d_flow
 #from opendrift.readers import reader_global_landmask
@@ -51,7 +51,27 @@ class TestDelft3D(unittest.TestCase):
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
         o.add_reader(myreader)
-        
+
+    def test_seed_run(self):
+        o = OceanDrift(loglevel=30)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o.add_reader(myreader)
+        print("start_time", myreader.start_time)
+        o.seed_elements(lat=53.41, lon=6.03, radius=0, number=10,
+                z=np.linspace(0, -1, 10), time=myreader.start_time)
+        o.run(time_step=15*60, steps=2)
+
+    def test_projected(self):
+        o = OceanDrift(loglevel=30)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        expected = NotImplementedError
+        try:
+            myreader = reader_delft3d_flow.Reader(filename=d3d_fn, proj4='astr')
+        except Exception as err:
+            assert isinstance(err, expected), (f"This raises a "
+                f"{type(err)} error instead of {expected}")
+            print(f"Got {err}")
 
 if __name__ == '__main__':
     unittest.main()

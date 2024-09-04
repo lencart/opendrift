@@ -76,7 +76,7 @@ class Reader(BaseReader, StructuredReader):
     """
     # Standard variable mapping for get_variables. Salinity and temperature
     # are grouped into dataset variable `R1`. They need to be expanded.
-    self.standard_variable_mapping = {
+    standard_variable_mapping = {
         'time'                              : 'time',
         'longitude'                         : 'XZ',
         'latitude'                          : 'YZ',
@@ -91,6 +91,16 @@ class Reader(BaseReader, StructuredReader):
         'sea_water_salinity'                : 'salt',
     }
 
+    zlevels = np.concatenate([
+        np.arange(-10, -1,0.5),
+        np.arange(-1, 1, 0.1),
+        np.arange(1, 10, 0.5),
+        np.arange(10, 50, 1),
+        np.arange(50, 100, 5),
+        np.arange(100, 500, 10),
+        np.arange(500, 2500, 100),
+        ],axis=0)
+
     def __init__(self,
         filename=None,
         name=None,
@@ -99,15 +109,24 @@ class Reader(BaseReader, StructuredReader):
         zlevels=None,
         ensemble_member=None,
     ):
-        if self.proj4 is None:
+        self.time = None
+        self.lon = None
+        self.lat = None
+        self.dimensions = {}
+        if proj4 is None:
             self.proj4 = '+proj=latlong'
             self.projected = False
+            logger.info('Grid coordinates are detected, but proj4 string not '
+                        'given: assuming latlong')
         else:
             self._parse_proj4()
+        if zlevels:
+            self.zlevels = zlevels
         self._open_datastream(filename=filename,
                               name=name,
                               ensemble_member=ensemble_member)
-        self._map_d3d_variable_names(custom_name_mapping)
+        self.standard_variable_mapping.update(custom_name_mapping)
+        self._get_independent_vars()
         super().__init__()
 
     def _open_datastream(self,
@@ -148,10 +167,35 @@ class Reader(BaseReader, StructuredReader):
             self.name = namestr
         else:
             self.name = filestr
+        # Convert times to an array of datetime objects
+        self.Dataset = xr.decode_cf(self.Dataset)
 
     def _parse_proj4(self):
-        pass
+        raise NotImplementedError(f"Unprojected coordinates not implemented"
+            f" for {type(self)} Reader class")
 
+    def _get_independent_vars(self):
+        """Parses variable mapping and fetches time, x and y into object
+        variables.
+        """
+        indvarnames = {'time': 'time', 'x': 'longitude', 'y': 'latitude'}
+        indvarstruct = {'time': self.time,
+                        'x'   : self.lon,
+                        'y'   : self.lat,
+        }
+        mask_name = self.standard_variable_mapping['land_binary_mask']
+        mask = np.logical_not(self.Dataset[mask_name]) # Originally False for
+                                                       # masked values.
+        for key, val in indvarnames.items():
+            varname = self.standard_variable_mapping[val]
+            if key != 'time':
+                indvarstruct[key] = np.ma.masked_where(mask,
+                    self.Dataset[varname].data)
+            else:
+                indvarstruct[key] = self.Dataset[varname] \
+                    .data.astype('M8[ms]').astype('O').tolist()
+                self.start_time = indvarstruct[key][0]
+            self.dimensions[key] = self.Dataset[varname].dims
 
     @staticmethod
     def _get_variable_coordinates(ds, var):
@@ -198,9 +242,10 @@ class Reader(BaseReader, StructuredReader):
         z=None,
         testing=False
     ):
+        variables = {}
         start_time = datetime.now()
+        nearestTime, dummy1, dummy2, indxTime, dummy3, dummy4 = \
+            self.nearest_time(time)
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
-
-        # Destagger all variables from their grids to rho grid
-        pass
+        return variables
