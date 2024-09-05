@@ -113,6 +113,7 @@ class Reader(BaseReader, StructuredReader):
         self.lon = None
         self.lat = None
         self.dimensions = {}
+
         if proj4 is None:
             self.proj4 = '+proj=latlong'
             self.projected = False
@@ -127,6 +128,7 @@ class Reader(BaseReader, StructuredReader):
                               ensemble_member=ensemble_member)
         self.standard_variable_mapping.update(custom_name_mapping)
         self._get_independent_vars()
+        self.variables = list(self.standard_variable_mapping)
         super().__init__()
 
     def _open_datastream(self,
@@ -179,23 +181,29 @@ class Reader(BaseReader, StructuredReader):
         variables.
         """
         indvarnames = {'time': 'time', 'x': 'longitude', 'y': 'latitude'}
-        indvarstruct = {'time': self.time,
-                        'x'   : self.lon,
-                        'y'   : self.lat,
-        }
         mask_name = self.standard_variable_mapping['land_binary_mask']
         mask = np.logical_not(self.Dataset[mask_name]) # Originally False for
                                                        # masked values.
+        varname = self.standard_variable_mapping['time']
+        self.times = self.Dataset[varname].data.astype('M8[ms]') \
+            .astype('O').tolist()
+        varname = self.standard_variable_mapping['longitude']
+        self.lon = np.ma.masked_where(mask, self.Dataset[varname].data)
+        varname = self.standard_variable_mapping['latitude']
+        self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
         for key, val in indvarnames.items():
             varname = self.standard_variable_mapping[val]
-            if key != 'time':
-                indvarstruct[key] = np.ma.masked_where(mask,
-                    self.Dataset[varname].data)
-            else:
-                indvarstruct[key] = self.Dataset[varname] \
-                    .data.astype('M8[ms]').astype('O').tolist()
-                self.start_time = indvarstruct[key][0]
             self.dimensions[key] = self.Dataset[varname].dims
+        self.xmin = self.lon.min()
+        self.xmax = self.lon.max()
+        self.ymin = self.lat.min()
+        self.ymax = self.lat.max()
+        self.start_time = self.times[0]
+        self.end_time = self.times[-1]
+        if len(self.times) > 1:
+            self.time_step = self.times[1] - self.times[0]
+        else:
+            self.time_step = None
 
     @staticmethod
     def _get_variable_coordinates(ds, var):
@@ -248,4 +256,16 @@ class Reader(BaseReader, StructuredReader):
             self.nearest_time(time)
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
+        # For each variable
+        print('time', time)
+        print('nearest time, indxTime', nearestTime, indxTime)
+        print('requested variables', requested_variables)
+        print('x, y, z', x, y, z)
+        print(outside)
+#        for variable in requested_variables:
+            # Find nearest x, y, z
+            # Destagger if needed
+            # extract those profiles for these times
+            # Do the vertical transformation for those profiles at this times
+            # Interpolate each profile to the nearest z
         return variables
