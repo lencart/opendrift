@@ -484,6 +484,8 @@ class Variables(ReaderDomain):
     buffer = 0
 
     def __init__(self):
+        print("#####MIN MAX AT TOP OF VARIABLES######")
+        print(self.xmin, self.xmax, self.ymin, self.ymax)
         if self.derived_variables is None:
             self.derived_variables = {}
         if self.variables is None:

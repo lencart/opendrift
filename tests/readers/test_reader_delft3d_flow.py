@@ -32,6 +32,7 @@ class TestDelft3D(unittest.TestCase):
         o = OceanDrift(loglevel=30)
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
+        print(myreader)
 
     def test_get_variable_coordinates(self):
         o = OceanDrift(loglevel=30)
@@ -60,7 +61,7 @@ class TestDelft3D(unittest.TestCase):
         print("start_time", myreader.start_time)
         o.seed_elements(lat=53.41, lon=6.03, radius=0, number=10,
                 z=np.linspace(0, -1, 10), time=myreader.start_time)
-        o.run(time_step=15*60, steps=2)
+        o.run(time_step=15*60, steps=10)
 
     def test_projected(self):
         o = OceanDrift(loglevel=30)

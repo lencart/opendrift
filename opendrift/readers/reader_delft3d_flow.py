@@ -124,6 +124,8 @@ class Reader(BaseReader, StructuredReader):
         self.standard_variable_mapping.update(custom_name_mapping)
         self._get_independent_vars()
         self.variables = list(self.standard_variable_mapping)
+        print("#####MIN MAX IN D3D INIT######")
+        print(self.xmin, self.xmax, self.ymin, self.ymax)
         super().__init__()
 
     def _open_datastream(self,
@@ -177,8 +179,14 @@ class Reader(BaseReader, StructuredReader):
         """
         indvarnames = {'time': 'time', 'x': 'longitude', 'y': 'latitude'}
         mask_name = self.standard_variable_mapping['land_binary_mask']
-        mask = np.logical_not(self.Dataset[mask_name]) # Originally False for
-                                                       # masked values.
+        mask = self.Dataset[mask_name].data
+        # Find valid min and max indices
+        if 0:
+            self.xmin = np.argwhere(mask).min(0)[0]
+            self.ymin = np.argwhere(mask).min(0)[1]
+            self.xmax = np.argwhere(mask).max(0)[0]
+            self.ymax = np.argwhere(mask).max(0)[1]
+        mask = np.logical_not(mask) # Originally False for masked values.
         varname = self.standard_variable_mapping['time']
         self.times = self.Dataset[varname].data.astype('M8[ms]') \
             .astype('O').tolist()
@@ -189,17 +197,12 @@ class Reader(BaseReader, StructuredReader):
         for key, val in indvarnames.items():
             varname = self.standard_variable_mapping[val]
             self.dimensions[key] = self.Dataset[varname].dims
-        self.xmin = self.lon.min()
-        self.xmax = self.lon.max()
-        self.ymin = self.lat.min()
-        self.ymax = self.lat.max()
         self.start_time = self.times[0]
         self.end_time = self.times[-1]
         if len(self.times) > 1:
             self.time_step = self.times[1] - self.times[0]
         else:
             self.time_step = None
-
     @staticmethod
     def _get_variable_coordinates(ds, var):
         """Finds the `ds` xarray dataset coordinate names for the variable

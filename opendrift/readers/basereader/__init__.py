@@ -102,7 +102,11 @@ class BaseReader(Variables, Combine, Filter):
 
     def __init__(self):
         """Common constructor for all readers"""
+        print("#####MIN MAX AT TOP OF BASEREADER######")
+        print(self.xmin, self.xmax, self.ymin, self.ymax)
         super().__init__()
+        print("#####MIN MAX AT BASEREADER AFTER SUPER######")
+        print(self.xmin, self.xmax, self.ymin, self.ymax)
 
         self.number_of_fails = 0  # Readers may be quanrantined after a number of fails (config setting)
 
@@ -157,7 +161,8 @@ class BaseReader(Variables, Combine, Filter):
             self.shape = (int(numx), int(numy))
         except:
             self.shape = None
-
+        print("#####MIN MAX IN BUFFER SIZE######")
+        print(self.xmin, self.xmax, self.ymin, self.ymax)
         self.set_buffer_size(max_speed = 5.)
 
         # Check if there are east/north-oriented vectors
