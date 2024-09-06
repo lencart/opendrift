@@ -113,13 +113,8 @@ class Reader(BaseReader, StructuredReader):
         self.lon = None
         self.lat = None
         self.dimensions = {}
-
-        if proj4 is None:
-            self.proj4 = '+proj=latlong'
-            self.projected = False
-            logger.info('Grid coordinates are detected, but proj4 string not '
-                        'given: assuming latlong')
-        else:
+        self.proj4 = proj4
+        if self.proj4 is not None:
             self._parse_proj4()
         if zlevels:
             self.zlevels = zlevels
@@ -261,8 +256,10 @@ class Reader(BaseReader, StructuredReader):
         print('nearest time, indxTime', nearestTime, indxTime)
         print('requested variables', requested_variables)
         print('x, y, z', x, y, z)
-        print(outside)
-#        for variable in requested_variables:
+        for variable in requested_variables:
+            # Map variable
+            varname = self.standard_variable_mapping[variable]
+            
             # Find nearest x, y, z
             # Destagger if needed
             # extract those profiles for these times
