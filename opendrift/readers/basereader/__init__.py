@@ -164,6 +164,7 @@ class BaseReader(Variables, Combine, Filter):
             self.shape = (int(numx), int(numy))
         except:
             self.shape = None
+
         self.set_buffer_size(max_speed = 5.)
 
         # Check if there are east/north-oriented vectors
