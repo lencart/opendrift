@@ -44,8 +44,6 @@ class StructuredReader(Variables):
     __disable_parallel__ = False
 
     def __init__(self):
-        print("#####MIN MAX AT TOP OF STRUCTURED######")
-        print(self.xmin, self.xmax, self.ymin, self.ymax)
         if self.proj is None and (self.proj4 is None
                                   or self.proj4 == 'fakeproj'):
 
@@ -477,13 +475,8 @@ class StructuredReader(Variables):
         if self.projected:
             return super().pixel_size()
         else:
-            print("#####MIN MAX IN STRUCT PIXEL_SIZE######")
-            print(self.xmin, self.xmax, self.ymin, self.ymax)
             lons, lats = self.xy2lonlat([self.xmin, self.xmax],
                                         [self.ymin, self.ymin])
-            print('######### LONS LATS ##########')
-            print(lons)
-            print(lats)
             geod = pyproj.Geod(ellps='WGS84')  # Define an ellipsoid
             dist = geod.inv(lons[0], lats[0], lons[1], lats[1],
                             radians=False)[2]

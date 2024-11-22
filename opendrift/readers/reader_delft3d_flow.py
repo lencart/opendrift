@@ -123,8 +123,6 @@ class Reader(BaseReader, StructuredReader):
         self.standard_variable_mapping.update(custom_name_mapping)
         self._get_independent_vars()
         self.variables = list(self.standard_variable_mapping)
-        print("#####MIN MAX IN D3D INIT######")
-        print(self.xmin, self.xmax, self.ymin, self.ymax)
         super().__init__()
 
     def _open_datastream(self,
