@@ -26,7 +26,6 @@ import xarray as xr
 from opendrift.readers.basereader import BaseReader, StructuredReader
 from opendrift.readers.roppy import depth
 
-
 class Reader(BaseReader, StructuredReader):
     """
     A reader for Delft3D-Flow netCDF Output files. It can take a single file, a
@@ -173,6 +172,52 @@ class Reader(BaseReader, StructuredReader):
         raise NotImplementedError(f"Unprojected coordinates not implemented"
             f" for {type(self)} Reader class")
 
+    @staticmethod
+    def _fill_masked_coords(x, y):
+        """Fill in a value in the masked coordinates.
+
+        Arguments
+        ---------
+        x: array_like
+            With coordinates along the x-axis
+        y: array_like
+            With coordinates along the y-axis
+
+        Returns
+        -------
+        tuple:
+            With coordinate arrays filled with a value for the masked nodes.
+        """
+        # Opposite axis
+        opp_axis = [1, 0]
+        # Translation array for tiling
+        tarray = np.array([
+            [0, 1],
+            [1, 0]
+            ])
+        for i, coord in enumerate([x, y]):
+            # Place the anchor point 10% of the domain span to the left and
+            # bottom of the domain
+            unmasked = np.logical_not(coord.mask)
+            anchor = coord.data[unmasked].min() \
+                - 0.1 * (coord.data[unmasked].max() \
+                - coord.data[unmasked].min())
+            # Find the mean dx
+            dx = np.abs(np.mean(np.diff(coord, axis=i)))
+            # Make a linear incremented outer domain away from the anchor point
+            outer = np.linspace(
+                anchor,
+                anchor - dx * (coord.shape[i] - 1),
+                coord.shape[i]
+            )
+            # Tile to get the same shape as the coordinates
+            outer = np.expand_dims(outer, axis=opp_axis[i])
+            tile_shape = coord.shape * tarray[i,:] + np.flip(tarray[i, :])
+            outer = np.tile(outer, tile_shape)
+            # Map the masked with the exact number of cells from the scale
+            coord.data[coord.mask] = outer[coord.mask]
+        return x, y
+
     def _get_independent_vars(self):
         """Parses variable mapping and fetches time, x and y into object
         variables.
@@ -181,11 +226,6 @@ class Reader(BaseReader, StructuredReader):
         mask_name = self.standard_variable_mapping['land_binary_mask']
         mask = self.Dataset[mask_name].data
         # Find valid min and max indices
-        if 0:
-            self.xmin = np.argwhere(mask).min(0)[0]
-            self.ymin = np.argwhere(mask).min(0)[1]
-            self.xmax = np.argwhere(mask).max(0)[0]
-            self.ymax = np.argwhere(mask).max(0)[1]
         mask = np.logical_not(mask) # Originally False for masked values.
         varname = self.standard_variable_mapping['time']
         self.times = self.Dataset[varname].data.astype('M8[ms]') \
@@ -194,15 +234,16 @@ class Reader(BaseReader, StructuredReader):
         self.lon = np.ma.masked_where(mask, self.Dataset[varname].data)
         varname = self.standard_variable_mapping['latitude']
         self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
-        for key, val in indvarnames.items():
-            varname = self.standard_variable_mapping[val]
-            self.dimensions[key] = self.Dataset[varname].dims
-        self.start_time = self.times[0]
-        self.end_time = self.times[-1]
-        if len(self.times) > 1:
-            self.time_step = self.times[1] - self.times[0]
-        else:
-            self.time_step = None
+        self.lon, self.lat = self._fill_masked_coords(self.lon, self.lat)
+#        for key, val in indvarnames.items():
+#            varname = self.standard_variable_mapping[val]
+#            self.dimensions[key] = self.Dataset[varname].dims
+#        self.start_time = self.times[0]
+#        self.end_time = self.times[-1]
+#        if len(self.times) > 1:
+#            self.time_step = self.times[1] - self.times[0]
+#        else:
+#            self.time_step = None
     @staticmethod
     def _get_variable_coordinates(ds, var):
         """Finds the `ds` xarray dataset coordinate names for the variable
