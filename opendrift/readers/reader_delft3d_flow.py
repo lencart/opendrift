@@ -233,15 +233,16 @@ class Reader(BaseReader, StructuredReader):
         varname = self.standard_variable_mapping['latitude']
         self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
         self.lon, self.lat = self._fill_masked_coords(self.lon, self.lat)
-#        for key, val in indvarnames.items():
-#            varname = self.standard_variable_mapping[val]
-#            self.dimensions[key] = self.Dataset[varname].dims
-#        self.start_time = self.times[0]
-#        self.end_time = self.times[-1]
-#        if len(self.times) > 1:
-#            self.time_step = self.times[1] - self.times[0]
-#        else:
-#            self.time_step = None
+        for key, val in indvarnames.items():
+            varname = self.standard_variable_mapping[val]
+            self.dimensions[key] = self.Dataset[varname].dims
+        self.start_time = self.times[0]
+        self.end_time = self.times[-1]
+        if len(self.times) > 1:
+            self.time_step = self.times[1] - self.times[0]
+        else:
+            self.time_step = None
+
     @staticmethod
     def _get_variable_coordinates(ds, var):
         """Finds the `ds` xarray dataset coordinate names for the variable
