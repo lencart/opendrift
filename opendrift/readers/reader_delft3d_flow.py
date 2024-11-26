@@ -14,6 +14,7 @@
 #
 # Copyright 2015, Knut-Frode Dagestad, MET Norway
 
+import copy
 from bisect import bisect_left, bisect_right
 from datetime import datetime
 import logging
@@ -22,8 +23,12 @@ logger = logging.getLogger(__name__)
 import numpy as np
 from netCDF4 import num2date
 import xarray as xr
+from scipy.interpolate import LinearNDInterpolator
+from scipy.ndimage import map_coordinates
+import pyproj
 
 from opendrift.readers.basereader import BaseReader, StructuredReader
+from opendrift.readers.basereader.fakeproj import fakeproj
 from opendrift.readers.roppy import depth
 
 class Reader(BaseReader, StructuredReader):
@@ -125,6 +130,7 @@ class Reader(BaseReader, StructuredReader):
         self._get_independent_vars()
         self.variables = list(self.standard_variable_mapping)
         super().__init__()
+        self._overload_xy_grid()
 
     def _open_datastream(self,
         filename=None,
@@ -262,6 +268,7 @@ class Reader(BaseReader, StructuredReader):
             [0, 1],
             [1, 0]
             ])
+        outers = []
         for i, coord in enumerate([x, y]):
             # Place the anchor point 10% of the domain span to the left and
             # bottom of the domain
@@ -283,7 +290,8 @@ class Reader(BaseReader, StructuredReader):
             outer = np.tile(outer, tile_shape)
             # Map the masked with the exact number of cells from the scale
             coord.data[coord.mask] = outer[coord.mask]
-        return x, y
+            outers.append(outer)
+        return x, y, outers
 
     def _get_independent_vars(self):
         """Parses variable mapping and fetches time, x and y into object
@@ -306,7 +314,7 @@ class Reader(BaseReader, StructuredReader):
         self.lon = np.ma.masked_where(mask, self.Dataset[varname].data)
         varname = self.standard_variable_mapping['latitude']
         self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
-        self.lon, self.lat = self._fill_masked_coords(self.lon, self.lat)
+        #self.lon, self.lat, _ = self._fill_masked_coords(self.lon, self.lat)
         try:
             varname = self.standard_variable_mapping['sigma']
             self.sigma = self.Dataset[varname].data
@@ -361,6 +369,140 @@ class Reader(BaseReader, StructuredReader):
                     dimcoords))[0]
         return coordsout
 
+    def _overload_xy_grid(self):
+        print('########################')
+        print('########OVERLOADIND####')
+        if isinstance(self.proj, fakeproj):
+            logger.warning(
+                (
+                "No proj string or projection could be derived, using"
+                " 'fakeproj'. This assumes that the variables are structured"
+                " and gridded approximately equidistantly on the surface"
+                " (i.e. in meters). This must be guaranteed by the user. You"
+                " can get rid of this warning by supplying a valid projection"
+                " to the reader."
+                )
+            )
+            # Making interpolator (lon, lat) -> x
+            # save to speed up next time
+            if self.save_interpolator and self.interpolator_filename is not None:
+                interpolator_filename = Path(self.interpolator_filename).with_suffix('.pickle')
+            else:
+                interpolator_filename = f'{self.name}_interpolators.pickle'
+            if self.save_interpolator and Path(interpolator_filename).is_file():
+                logger.info((
+                        "Loading previously saved interpolator for lon,lat"
+                        " to x,y conversion."
+                    )
+                )
+                with open(interpolator_filename, 'rb') as file_handle:
+                    interp_dict = pickle.load(file_handle)
+                    spl_x = interp_dict["spl_x"]
+                    spl_y = interp_dict["spl_y"]
+            else:
+                logger.info((
+                        "Making interpolator for lon,lat to x,y"
+                        " conversion..."
+                    )
+                )
+                block_x, block_y = np.mgrid[self.xmin:self.xmax + 1,
+                                            self.ymin:self.ymax + 1]
+                mask = np.logical_not(self.lon.mask)
+                block_x, block_y = block_x.T, block_y.T
+                spl_x = LinearNDInterpolator(
+                    (self.lon[mask].ravel(), self.lat[mask].ravel()),
+                    block_x[mask].ravel(),
+                    fill_value=np.nan)
+                # Reusing x-interpolator (deepcopy) with data for y
+                spl_y = copy.deepcopy(spl_x)
+                spl_y.values[:, 0] = block_y[mask].ravel()
+                # Call interpolator to avoid threading-problem:
+                # https://github.com/scipy/scipy/issues/8856
+                spl_x((0, 0)), spl_y((0, 0))
+                if self.save_interpolator:
+                    logger.info((
+                        "Saving interpolator for lon,lat to x,y"
+                        " conversion."
+                        )
+                    )
+                    interp_dict = {"spl_x": spl_x, "spl_y": spl_y}
+                    with open(interpolator_filename, 'wb') as f:
+                        pickle.dump(interp_dict, f)
+            self.spl_x = spl_x
+            self.spl_y = spl_y
+            print(self.spl_x.points)
+
+    def xy2lonlat(self, x, y):
+        """Overloads structured reader function.
+        """
+        if self.projected:
+            return super().xy2lonlat(x, y)
+        else:
+            mask = self.lon.mask
+            np.seterr(invalid='ignore')  # Disable warnings for nan-values
+            y = np.atleast_1d(y).astype('float64')
+            x = np.atleast_1d(x).astype('float64')
+            # NB: mask coordinates outside domain
+            x[x < self.xmin] = np.nan
+            x[x > self.xmax] = np.nan
+            y[y < self.ymin] = np.nan
+            y[y < self.ymin] = np.nan
+            lon_in = self.lon.copy()
+            lon_in[mask] = np.nan
+            lat_in = self.lat.copy()
+            lat_in[mask] = np.nan
+            lon = map_coordinates(lon_in, [y, x],
+                                  order=1,
+                                  cval=np.nan,
+                                  mode='nearest')
+            lat = map_coordinates(lat_in, [y, x],
+                                  order=1,
+                                  cval=np.nan,
+                                  mode='nearest')
+            return (lon, lat)
+
+    def pixel_size(self):
+        """Overloads the same method from structured to return the minimum
+        pixel size"""
+        if self.projected:
+            raise NotImplementedError((
+                    "Delft3D-Flow reader not implemented for"
+                    " projected coordinates"
+                )
+            )
+        else:
+            mask = self.lon.mask
+            # Fill in the mask with very large numbers so that the distance
+            # between a valid node and a masked one is huge and that node
+            # is not selected as the smallest distance.
+            lons = self.lon.data.copy()
+            lons[mask] = 1e6
+            lats = self.lat.data.copy()
+            lats[mask] = 1e6
+            geod = pyproj.Geod(ellps='WGS84')  # Define an ellipsoid
+            dist_x = geod.inv(lons[:,:-1], lats[:,:-1], lons[:,1:], lats[:,1:],
+                radians=False)[2]
+            dist_y = geod.inv(lons[:-1,:], lats[:-1,:], lons[1:,:], lats[1:,:],
+                radians=False)[2]
+            mindists = [np.nanmin(dist_x), np.nanmin(dist_y)]
+            # Take the minimum distance and divide by the dimension of that
+            # fakeproj axis.
+            pixelsize = np.min(mindists) / self.shape[np.argmin(mindists)]
+            print('pixel size', pixelsize)
+            return pixelsize
+
+    def modulate_longitude(self, lons):
+        """
+        Modulate the input longitude to the domain supported by the reader.
+
+        Overloads parent method class to bypass checking for sign.
+        """
+        # Delft 3d longitudes are positive east from Greenwich.
+        # This method overloads the parent that requests longitudes for xy
+        # fakeproje xtents that can lead into np.nans outside mask
+        return  np.mod(lons+180, 360) - 180
+
+
     def get_variables(self,
         requested_variables,
         time=None,
@@ -373,6 +515,8 @@ class Reader(BaseReader, StructuredReader):
         start_time = datetime.now()
         nearestTime, dummy1, dummy2, indxTime, dummy3, dummy4 = \
             self.nearest_time(time)
+        print('before')
+        print('x, y, z', x, y, z)
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
         # For each variable
@@ -380,11 +524,15 @@ class Reader(BaseReader, StructuredReader):
         print('nearest time, indxTime', nearestTime, indxTime)
         print('requested variables', requested_variables)
         print('x, y, z', x, y, z)
+        # Find nearest x, y, z
+            
         for variable in requested_variables:
             # Map variable
             varname = self.standard_variable_mapping[variable]
-            
-            # Find nearest x, y, z
+            variables[variable] = self.Dataset[varname]
+            print("############################")
+            print("######VARIABLE MAPPED#######")
+            print(variable, varname)
             # Destagger if needed
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times
