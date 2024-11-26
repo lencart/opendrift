@@ -79,6 +79,7 @@ class Reader(BaseReader, StructuredReader):
         'time'                              : 'time',
         'longitude'                         : 'XZ',
         'latitude'                          : 'YZ',
+        'sigma'                             : 'SIG_LYR',
         'land_binary_mask'                  : 'KCS',
         'sea_floor_depth_below_sea_level'   : 'DPS0',
         'sea_surface_height'                : 'S1',
@@ -199,10 +200,16 @@ class Reader(BaseReader, StructuredReader):
              corners[1][0],
              corners[1][1])
         if hasattr(self, 'z'):
-            np.set_printoptions(suppress=True)
-            outStr += 'Vertical levels [m]: \n  ' + str(self.z) + '\n'
+            with np.printoptions(suppress=True) as opts:
+                outStr += 'Vertical levels [m]: \n  ' + str(self.z) + '\n'
         elif hasattr(self, 'sigma'):
-            outStr += 'Vertical levels [sigma]: \n  ' + str(self.sigma) + '\n'
+            with np.printoptions(suppress=True, threshold=20) as opts:
+                    outStr += (
+                        f'Vertical levels [sigma]: \n'
+                        f' {self.sigma}\n')
+                    outStr += (
+                        f'Interpolated into zeta [m]:\n'
+                        f' {self.zlevels}\n')
         else:
             outStr += 'Vertical levels [m]: \n  Not specified\n'
         outStr += 'Available time range:\n'
@@ -282,7 +289,12 @@ class Reader(BaseReader, StructuredReader):
         """Parses variable mapping and fetches time, x and y into object
         variables.
         """
-        indvarnames = {'time': 'time', 'x': 'longitude', 'y': 'latitude'}
+        indvarnames = {
+            'time': 'time',
+            'x': 'longitude',
+            'y': 'latitude',
+            'z': 'sigma',
+        }
         mask_name = self.standard_variable_mapping['land_binary_mask']
         mask = self.Dataset[mask_name].data
         # Find valid min and max indices
@@ -295,6 +307,13 @@ class Reader(BaseReader, StructuredReader):
         varname = self.standard_variable_mapping['latitude']
         self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
         self.lon, self.lat = self._fill_masked_coords(self.lon, self.lat)
+        try:
+            varname = self.standard_variable_mapping['sigma']
+            self.sigma = self.Dataset[varname].data
+        except KeyError:
+            raise NotImplementedError(('Delft3d-Flow reader only implemented'
+                ' for 3d vertical sigma coordinates')
+                )
         for key, val in indvarnames.items():
             varname = self.standard_variable_mapping[val]
             self.dimensions[key] = self.Dataset[varname].dims
