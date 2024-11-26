@@ -62,6 +62,7 @@ class TestDelft3D(unittest.TestCase):
         o.seed_elements(lat=53.41, lon=6.03, radius=0, number=10,
                 z=np.linspace(0, -1, 10), time=myreader.start_time)
         o.run(time_step=15*60, steps=10)
+        return o, myreader
 
     def test_projected(self):
         o = OceanDrift(loglevel=30)

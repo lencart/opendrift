@@ -166,6 +166,68 @@ class Reader(BaseReader, StructuredReader):
         # Convert times to an array of datetime objects
         self.Dataset = xr.decode_cf(self.Dataset)
 
+    def __repr__(self):
+        """Overloads same method in `variables`"""
+        outStr = '===========================\n'
+        outStr += 'Reader: ' + self.name + '\n'
+        outStr += 'Projection: \n  ' + self.proj4 + '\n'
+        outStr += 'Coverage: [%s]\n' % self._coverage_unit_()
+        shape = self.shape
+        if shape is None:
+            outStr += '  xmin: %f   xmax: %f\n' % (self.xmin, self.xmax)
+            outStr += '  ymin: %f   ymax: %f\n' % (self.ymin, self.ymax)
+        else:
+            outStr += '  xmin: %f   xmax: %f   step: %g   numx: %i\n' % \
+                (self.xmin, self.xmax, self.delta_x or 0, shape[0])
+            outStr += '  ymin: %f   ymax: %f   step: %g   numy: %i\n' % \
+                (self.ymin, self.ymax, self.delta_y or 0, shape[1])
+        corners =[
+            (np.nanmin(self.lon), np.nanmin(self.lat)),
+            (np.nanmax(self.lon), np.nanmin(self.lat)),
+            (np.nanmin(self.lon), np.nanmax(self.lat)),
+            (np.nanmax(self.lon), np.nanmax(self.lat)),
+        ]
+        outStr += '  Corners (lon, lat):\n'
+        outStr += '    (%6.2f, %6.2f)  (%6.2f, %6.2f)\n' % \
+            (corners[2][0],
+             corners[2][1],
+             corners[3][0],
+             corners[3][1])
+        outStr += '    (%6.2f, %6.2f)  (%6.2f, %6.2f)\n' % \
+            (corners[0][0],
+             corners[0][1],
+             corners[1][0],
+             corners[1][1])
+        if hasattr(self, 'z'):
+            np.set_printoptions(suppress=True)
+            outStr += 'Vertical levels [m]: \n  ' + str(self.z) + '\n'
+        elif hasattr(self, 'sigma'):
+            outStr += 'Vertical levels [sigma]: \n  ' + str(self.sigma) + '\n'
+        else:
+            outStr += 'Vertical levels [m]: \n  Not specified\n'
+        outStr += 'Available time range:\n'
+        outStr += '  start: ' + str(self.start_time) + \
+                  '   end: ' + str(self.end_time) + \
+                  '   step: ' + str(self.time_step) + '\n'
+        if self.start_time is not None and self.time_step is not None:
+            outStr += '    %i times (%i missing)\n' % (
+                self.expected_time_steps, self.missing_time_steps)
+        if hasattr(self, 'realizations') and self.realizations is not None:
+            outStr += 'Variables (%i ensemble members):\n' % len(
+                self.realizations)
+        else:
+            outStr += 'Variables:\n'
+        for variable in self.variables:
+            if variable in self.derived_variables:
+                outStr += '  ' + variable + ' - derived from ' + \
+                    str(self.derived_variables[variable]) + '\n'
+            else:
+                outStr += '  ' + variable + '\n'
+        outStr += '===========================\n'
+        outStr += self.performance()
+
+        return outStr
+
     def _parse_proj4(self):
         raise NotImplementedError(f"Unprojected coordinates not implemented"
             f" for {type(self)} Reader class")
