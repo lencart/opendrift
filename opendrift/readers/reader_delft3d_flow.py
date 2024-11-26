@@ -503,6 +503,31 @@ class Reader(BaseReader, StructuredReader):
         return  np.mod(lons+180, 360) - 180
 
 
+    def _get_xy(self, x, y):
+        if hasattr(self, 'clipped'):
+            clipped = self.clipped
+        else: 
+            clipped = 0
+        indx = np.floor(np.abs(x-self.x[0])/self.delta_x-clipped).astype(int) + clipped
+        print(indx)
+        indy = np.floor(np.abs(y-self.y[0])/self.delta_y-clipped).astype(int) + clipped
+        buffer = self.buffer  # Adding buffer, to cover also future positions of elements
+        indy = np.arange(np.max([0, indy.min() - buffer]),
+                         np.min([indy.max() + buffer + 1, self.numy]))
+        indx = np.arange(indx.min() - buffer, indx.max() + buffer + 1)
+        print(indx)
+        if self.global_coverage() and indx.min() < 0 and indx.max() > 0 and indx.max() < self.numx:
+            logger.debug('Requested data block is not continuous in file'+
+                          ', must read two blocks and concatenate.')
+            indx_left = indx[indx<0] + self.numx  # Shift to positive indices
+            indx_right = indx[indx>=0]
+            if indx_right.max() >= indx_left.min():  # Avoid overlap
+                indx_right = np.arange(indx_right.min(), indx_left.min())
+        else:
+            indx = np.arange(np.max([0, indx.min()]),
+                             np.min([indx.max() + 1, self.numx]))
+        return indx, indy
+
     def get_variables(self,
         requested_variables,
         time=None,
@@ -515,17 +540,12 @@ class Reader(BaseReader, StructuredReader):
         start_time = datetime.now()
         nearestTime, dummy1, dummy2, indxTime, dummy3, dummy4 = \
             self.nearest_time(time)
-        print('before')
-        print('x, y, z', x, y, z)
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
         # For each variable
-        print('time', time)
-        print('nearest time, indxTime', nearestTime, indxTime)
-        print('requested variables', requested_variables)
-        print('x, y, z', x, y, z)
-        # Find nearest x, y, z
-            
+        variables['time'] = nearestTime
+        # Find nearest x, y
+        variables['x'], variables['y'] = self._get_xy(x, y)
         for variable in requested_variables:
             # Map variable
             varname = self.standard_variable_mapping[variable]
