@@ -31,6 +31,43 @@ from opendrift.readers.basereader import BaseReader, StructuredReader
 from opendrift.readers.basereader.fakeproj import fakeproj
 from opendrift.readers.roppy import depth
 
+def nearest(array, value, n=1):
+    """Find the indices of the `n` elements `array` nearest to value(s).
+
+    Parameters
+    ----------
+    array : array-like
+        Array with the values to compare against `value`.
+    value : float, array-like
+        Value(s) evaluate the distance to `array`. This can either be a single
+        value or a vector (1d array) with multiple values.
+    n : int (optional, default = 1)
+        Number of indices to return by order of proximity to `value`.
+    
+    Returns
+    -------
+    array-like :
+         Array with `n * value.shape[0]` number of indices of `array` by order
+         of proximity to `value`.
+    """
+    value = np.squeeze(value)
+    assert value.ndim == 1, (f"value has to be a single dimension vector"
+        f" but has dimensions {value.shape}")
+    ndim = array.ndim
+    shape = array.shape
+    # Extend array to allow broacasting subtraction with vector value.
+    array = array[..., None]
+    # Extend vector value with the extra array dims.
+    value = np.asarray(value)[ndim * (None,) + (...,)]
+    # Calculate element-wise distance and reshape into flat array shapes
+    # stacked for each of the elements of the value vector representing
+    # the distances of each array element to the value vector element
+    # at the same position.
+    idx = np.abs(array - value).reshape(np.multiply(*shape), -1)
+    # Sort each of the distances to get the index of the closest array element.
+    idx = idx.argsort(axis=0)
+    return np.squeeze(idx[:n,:].T)
+
 class Reader(BaseReader, StructuredReader):
     """
     A reader for Delft3D-Flow netCDF Output files. It can take a single file, a
@@ -500,22 +537,22 @@ class Reader(BaseReader, StructuredReader):
         # Delft 3d longitudes are positive east from Greenwich.
         # This method overloads the parent that requests longitudes for xy
         # fakeproje xtents that can lead into np.nans outside mask
-        return  np.mod(lons+180, 360) - 180
+        return  np.mod(lons + 180, 360) - 180
 
 
     def _get_xy(self, x, y):
+        """Calculates the target horizontal grid indices.
+        """
         if hasattr(self, 'clipped'):
             clipped = self.clipped
         else: 
             clipped = 0
         indx = np.floor(np.abs(x-self.x[0])/self.delta_x-clipped).astype(int) + clipped
-        print(indx)
         indy = np.floor(np.abs(y-self.y[0])/self.delta_y-clipped).astype(int) + clipped
         buffer = self.buffer  # Adding buffer, to cover also future positions of elements
         indy = np.arange(np.max([0, indy.min() - buffer]),
                          np.min([indy.max() + buffer + 1, self.numy]))
         indx = np.arange(indx.min() - buffer, indx.max() + buffer + 1)
-        print(indx)
         if self.global_coverage() and indx.min() < 0 and indx.max() > 0 and indx.max() < self.numx:
             logger.debug('Requested data block is not continuous in file'+
                           ', must read two blocks and concatenate.')
