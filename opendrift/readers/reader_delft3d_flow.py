@@ -134,7 +134,7 @@ class Reader(BaseReader, StructuredReader):
         'sea_water_salinity'                : 'salt',
     }
 
-    zlevels = np.concatenate([
+    zlevels = -1 * np.concatenate([
         np.arange(-10, -1,0.5),
         np.arange(-1, 1, 0.1),
         np.arange(1, 10, 0.5),
@@ -468,7 +468,6 @@ class Reader(BaseReader, StructuredReader):
                         pickle.dump(interp_dict, f)
             self.spl_x = spl_x
             self.spl_y = spl_y
-            print(self.spl_x.points)
 
     def xy2lonlat(self, x, y):
         """Overloads structured reader function.
@@ -526,7 +525,6 @@ class Reader(BaseReader, StructuredReader):
             # Take the minimum distance and divide by the dimension of that
             # fakeproj axis.
             pixelsize = np.min(mindists) / self.shape[np.argmin(mindists)]
-            print('pixel size', pixelsize)
             return pixelsize
 
     def modulate_longitude(self, lons):
@@ -540,6 +538,38 @@ class Reader(BaseReader, StructuredReader):
         # fakeproje xtents that can lead into np.nans outside mask
         return  np.mod(lons + 180, 360) - 180
 
+    def _get_depth_coords(self, t, xs, ys, z_targets):
+        """Finds the nearest zlevels to the target zlevels and calculates the
+        depth for each of the (t, x, y) tuples.
+
+        Arguments
+        ---------
+        t: int
+            Time index when to look for the depth coordinates
+        xs, ys: array_like
+            With the indices for target grid cells
+        z_targets:
+            Requested approximate depths to avaluate the variables
+
+        Returns
+        -------
+        zlevels: array_like
+            With the resulting nearest z-level to each of the `z_targets`.
+        z_at_sigma: array_like
+            With depths at sigma coordinates for each of the (t, x, y) tuple.
+        """
+        dep_name = self \
+            .standard_variable_mapping['sea_floor_depth_below_sea_level']
+        eta_name = self.standard_variable_mapping['sea_surface_height']
+        sig_name = self.standard_variable_mapping['sigma']
+        # Find the nearest zlevels to the z_targets
+        zlevels = self.zlevels[nearest(self.zlevels, z_targets)]
+        # Dynamic depth at (t, x, y)
+        zeta = self.Dataset[dep_name].data[ys, xs] \
+            + self.Dataset[eta_name].data[t, ys, xs]
+        # z levels at sigma coordinates
+        zs = np.atleast_1d(zeta)[None, :] * self.Dataset[sig_name].data[:, None]
+        return zlevels, zs
 
     def _get_xy(self, x, y):
         """Calculates the target horizontal grid indices.
@@ -584,6 +614,12 @@ class Reader(BaseReader, StructuredReader):
         variables['time'] = nearestTime
         # Find nearest x, y
         variables['x'], variables['y'] = self._get_xy(x, y)
+        variables['z'], zs_at_sigma = self._get_depth_coords(
+            indxTime,
+            variables['x'],
+            variables['y'],
+            z,
+        )
         for variable in requested_variables:
             # Map variable
             varname = self.standard_variable_mapping[variable]

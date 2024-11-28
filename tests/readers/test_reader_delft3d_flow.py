@@ -59,7 +59,7 @@ class TestDelft3D(unittest.TestCase):
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
         o.add_reader(myreader)
         print("start_time", myreader.start_time)
-        o.seed_elements(lat=53.41, lon=6.03, radius=0, number=10,
+        o.seed_elements(lat=53.52, lon=6.0, radius=0, number=10,
                 z=np.linspace(0, -1, 10), time=myreader.start_time)
         o.run(time_step=15*60, steps=10)
         return o, myreader
@@ -74,6 +74,17 @@ class TestDelft3D(unittest.TestCase):
             assert isinstance(err, expected), (f"This raises a "
                 f"{type(err)} error instead of {expected}")
             print(f"Got {err}")
+
+    def test_get_coordinates(self, ts, xs, ys, zs):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
+        return myreader, myreader._get_depth_coords(
+            ts,
+            xs,
+            ys,
+            zs,
+        )
 
 if __name__ == '__main__':
     unittest.main()
