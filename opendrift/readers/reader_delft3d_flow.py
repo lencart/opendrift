@@ -50,7 +50,7 @@ def nearest(array, value, n=1):
          Array with `n * value.shape[0]` number of indices of `array` by order
          of proximity to `value`.
     """
-    value = np.squeeze(value)
+    value = np.atleast_1d(np.squeeze(value))
     array = np.atleast_2d(array)
     assert value.ndim == 1, (f"value has to be a single dimension vector"
         f" but has dimensions {value.shape}")
