@@ -134,6 +134,15 @@ class Reader(BaseReader, StructuredReader):
         'sea_water_salinity'                : 'salt',
     }
 
+    _r1_variables = {
+        'sea_water_temperature'             : 1,
+        'sea_water_salinity'                : 0,
+    }
+
+    _to_destagger = {
+        'x_sea_water_velocity'              : 'U1',
+        'y_sea_water_velocity'              : 'V1',
+    }
     zlevels = -1 * np.concatenate([
         np.arange(-10, -1,0.5),
         np.arange(-1, 1, 0.1),
@@ -371,7 +380,7 @@ class Reader(BaseReader, StructuredReader):
             self.time_step = None
 
     @staticmethod
-    def _get_variable_coordinates(ds, var):
+    def _get_var_coords(ds, var):
         """Finds the `ds` xarray dataset coordinate names for the variable
         `var`.
 
@@ -563,6 +572,7 @@ class Reader(BaseReader, StructuredReader):
         eta_name = self.standard_variable_mapping['sea_surface_height']
         sig_name = self.standard_variable_mapping['sigma']
         # Find the nearest zlevels to the z_targets
+        # TO DO: NEEDS TO BE CHANGED INTO SEARCHSORTED
         zlevels = self.zlevels[nearest(self.zlevels, z_targets)]
         # Dynamic depth at (t, x, y)
         zeta = self.Dataset[dep_name].data[ys, xs] \
@@ -602,6 +612,7 @@ class Reader(BaseReader, StructuredReader):
         zs_at_sigma,
         z_targets,
         itime=None,
+        **kwargs,
     ):
         """Interpolates a `varname` 1D profile or a 2D sequence of N profiles
         (shape == (M, N)), for one grid (x, y) index (1D) or a set of N grid
@@ -611,7 +622,7 @@ class Reader(BaseReader, StructuredReader):
         Arguments
         ---------
         varname: str
-            parsed variable name.
+            Standard variable name.
         xs, ys: int, array_like
             A set of grid indices with the same shape with
             `xs.flatte().shapen == N`. A grid index if `xs` and `ys` are integers.
@@ -634,13 +645,14 @@ class Reader(BaseReader, StructuredReader):
         z_range = np.array([z_targets.min(), z_targets.max()])
         i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
         z_targets = self.zlevels[i_range[0]: i_range[1] + 1]
-        # Cube indices for 2D or 3D, 4D vars
+        # Cube indices for or 4D vars
         if itime:
             cube = (itime, slice(None), ys.flatten(), xs.flatten())
         else:
             cube = (slice(None), ys.flatten(), xs.flatten())
         # Get data
-        F = np.swapaxes(self.Dataset[varname].data[cube], 0, 1)
+        data = self._get_cube(varname, cube, **kwargs)
+        F = np.swapaxes(data, 0, 1)
         # Interpolate profiles from z at sigma to target zlevels.
         # ROMS plofile interpolator only works with positive domains and
         # counterdomains.
@@ -663,6 +675,41 @@ class Reader(BaseReader, StructuredReader):
         # Return profiles in the shape of the requested cube
         return profiles.reshape(-1, *xs.shape)
 
+    def _get_cube(self, varname, cube, testing=False):
+        """Returns a cube of `varname` data. Unpacks data from grouped
+        variables, masks it and de-staggers it if needed.
+
+        Arguments
+        ---------
+        varname: str
+            Name of the variable as in the keys of
+            `self.standard_variable_mapping`.
+        cube: tuple
+            With the extent of the data subset.
+
+        Returns
+        -------
+        data: numpy.ma.MaskedArray
+            Data cube containing the `varname` values for the slices in
+            `cube`, masked with its respective mask.
+        """
+        if varname in self._r1_variables.keys():
+            # Go into `R1` and extract cube
+            i_data = self._r1_variables[varname]
+            # Assumes always a 4D cube for R1 variables
+            cube = (cube[0], i_data, *cube[1:])
+            data = r.Dataset['R1'].data[cube]
+        else:
+            varname = self.standard_variable_mapping[varname]
+            # Get cube
+            data = self.Dataset[varname].data[cube]
+        # Get mask for this variable
+        mask = self._get_mask(varname, cube)
+        data[mask] = np.nan
+        if varname in self._to_destagger.keys() and not testing:
+            # Bypass for profile testing
+            data = self._destagger(varname, cube)
+        return data
     def get_variables(self,
         requested_variables,
         time=None,

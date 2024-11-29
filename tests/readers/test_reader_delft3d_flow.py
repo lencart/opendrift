@@ -94,7 +94,7 @@ class TestDelft3D(unittest.TestCase):
         xs = [5.6, 18.2]
         ys = [2.2, 9.8]
         zs = [0., -.999999]
-        t = 0
+        t = 25
         indx, indy = r._get_xy(xs, ys)
         xx, yy = np.meshgrid(indx, indy)
         zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
@@ -110,16 +110,32 @@ class TestDelft3D(unittest.TestCase):
                 # the indentity operation.
                 r.zlevels = zsg[:, i*j]
                 u_int = r._interpolate_profile(
-                    'U1',
+                    'x_sea_water_velocity',
                     xx[i, j],
                     yy[i, j],
                     zsg[:,i*j],
                     zsg[(0, -1), i*j],
                     itime=25,
+                    testing=True, # To bypass destaggering
                 )
                 assert np.allclose(u[25, :, yy[i, j], xx[i, j]], u_int.T), \
                     f"Breaks in ({i}, {j})"
         return r, xx, yy, zlv, zsg, u, u_int
+
+    def test_get_cube(self):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        r.buffer = 0
+        xs = [5.6, 18.2]
+        ys = [2.2, 9.8]
+        zs = [0., -.999999]
+        t = 0
+        indx, indy = r._get_xy(xs, ys)
+        xx, yy = np.meshgrid(indx, indy)
+        zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
+        u = r.Dataset['U1'].data
+        
 
 if __name__ == '__main__':
     unittest.main()
