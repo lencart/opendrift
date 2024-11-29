@@ -603,7 +603,30 @@ class Reader(BaseReader, StructuredReader):
         z_targets,
         itime=None,
     ):
-        """
+        """Interpolates a `varname` 1D profile or a 2D sequence of N profiles
+        (shape == (M, N)), for one grid (x, y) index (1D) or a set of N grid
+        (xs, ys) indices, from their depth at sigma coordinates (`z_at_zigma`)
+        to target depths `z_targets` for a single time index `itime`.
+
+        Arguments
+        ---------
+        varname: str
+            parsed variable name.
+        xs, ys: int, array_like
+            A set of grid indices with the same shape with
+            `xs.flatte().shapen == N`. A grid index if `xs` and `ys` are integers.
+        zs_at_sigma: array_like
+            Depths at the sigma coordinate for each (itime, x, y), positive-up
+            from reference level. Has shape (M, N) with N == 1 if `xs` and `ys`
+            are integers.
+        z_targets: int, array_like
+            Depth or depths at which to interpolate `varname` values into.
+
+        Returns
+        -------
+        profiles: numpy.array
+            Interpolation result with `profiles.shape == (K, *xs.shape)` where
+            `K` is the number of self.zlevels within the range of `z_targets`.
         """
         xs = np.atleast_1d(xs)
         ys = np.atleast_1d(ys)

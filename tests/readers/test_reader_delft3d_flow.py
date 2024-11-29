@@ -99,20 +99,26 @@ class TestDelft3D(unittest.TestCase):
         xx, yy = np.meshgrid(indx, indy)
         zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
         u = r.Dataset['U1'].data
-        # Make the zlevels the exact same as the sigma layers at the 0, 0
-        # of the cube we are requesting
-        old_zlv = r.zlevels
-        r.zlevels = zsg[:, 0]
         # Ask again for the indentity interpolation of z at sigma against
         # z at sigma
-        u_int = r._interpolate_profile(
-            'U1',
-            xx[0, 0],
-            yy[0, 0],
-            zsg[:,0],
-            zsg[(0, -1), :], itime=25
-        )
-        assert np.allclose(u[25, :, 2, 5], u_int.T)
+        for i in range(xx.shape[0]):
+            for j in range(xx.shape[1]):
+                # Make the zlevels the exact same as the sigma layers at the
+                # same horizontal indices of the cube we are requesting.
+                # This is need to guaranty that the calculated target zlevels
+                # align perfectly with the z at sigma so that we can validate
+                # the indentity operation.
+                r.zlevels = zsg[:, i*j]
+                u_int = r._interpolate_profile(
+                    'U1',
+                    xx[i, j],
+                    yy[i, j],
+                    zsg[:,i*j],
+                    zsg[(0, -1), i*j],
+                    itime=25,
+                )
+                assert np.allclose(u[25, :, yy[i, j], xx[i, j]], u_int.T), \
+                    f"Breaks in ({i}, {j})"
         return r, xx, yy, zlv, zsg, u, u_int
 
 if __name__ == '__main__':
