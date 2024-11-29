@@ -86,6 +86,35 @@ class TestDelft3D(unittest.TestCase):
             zs,
         )
 
+    def test_multi_zslice(self):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        r.buffer = 0
+        xs = [5.6, 18.2]
+        ys = [2.2, 9.8]
+        zs = [0., -.999999]
+        t = 0
+        indx, indy = r._get_xy(xs, ys)
+        xx, yy = np.meshgrid(indx, indy)
+        zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
+        u = r.Dataset['U1'].data
+        # Make the zlevels the exact same as the sigma layers at the 0, 0
+        # of the cube we are requesting
+        old_zlv = r.zlevels
+        r.zlevels = zsg[:, 0]
+        # Ask again for the indentity interpolation of z at sigma against
+        # z at sigma
+        u_int = r._interpolate_profile(
+            'U1',
+            xx[0, 0],
+            yy[0, 0],
+            zsg[:,0],
+            zsg[(0, -1), :], itime=25
+        )
+        assert np.allclose(u[25, :, 2, 5], u_int.T)
+        return r, xx, yy, zlv, zsg, u, u_int
+
 if __name__ == '__main__':
     unittest.main()
 

@@ -29,7 +29,7 @@ import pyproj
 
 from opendrift.readers.basereader import BaseReader, StructuredReader
 from opendrift.readers.basereader.fakeproj import fakeproj
-from opendrift.readers.roppy import depth
+from opendrift.readers.roppy import depth as drp
 
 def nearest(array, value, n=1):
     """Find the indices of the `n` elements `array` nearest to value(s).
@@ -596,6 +596,50 @@ class Reader(BaseReader, StructuredReader):
                              np.min([indx.max() + 1, self.numx]))
         return indx, indy
 
+    def _interpolate_profile(self,
+        varname,
+        xs, ys,
+        zs_at_sigma,
+        z_targets,
+        itime=None,
+    ):
+        """
+        """
+        xs = np.atleast_1d(xs)
+        ys = np.atleast_1d(ys)
+        # Get all the zlevels within the range of z_targets
+        z_range = np.array([z_targets.min(), z_targets.max()])
+        i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
+        z_targets = self.zlevels[i_range[0]: i_range[1] + 1]
+        # Cube indices for 2D or 3D, 4D vars
+        if itime:
+            cube = (itime, slice(None), ys.flatten(), xs.flatten())
+        else:
+            cube = (slice(None), ys.flatten(), xs.flatten())
+        # Get data
+        F = np.swapaxes(self.Dataset[varname].data[cube], 0, 1)
+        # Interpolate profiles from z at sigma to target zlevels.
+        # ROMS plofile interpolator only works with positive domains and
+        # counterdomains.
+        profiles, _ = drp.multi_zslice(F, -1 * zs_at_sigma, -1 * z_targets)
+        # Mask profiles when z levels are outside of the z at sigma range.
+        #if xs.ndim > 1:
+        try:
+            # It will work if there are multiple profiles to calculate
+            mask = np.logical_or(
+                z_targets[:, None] < zs_at_sigma.min(axis=0)[None, :],
+                z_targets[:, None] > zs_at_sigma.max(axis=0)[None, :],
+            )
+        except IndexError:
+            # This will raise an error if there is only one profile
+            mask = np.logical_or(
+                z_targets < zs_at_sigma.min(),
+                z_targets > zs_at_sigma.max(),
+            )
+        profiles[mask] = np.nan
+        # Return profiles in the shape of the requested cube
+        return profiles.reshape(-1, *xs.shape)
+
     def get_variables(self,
         requested_variables,
         time=None,
@@ -604,6 +648,41 @@ class Reader(BaseReader, StructuredReader):
         z=None,
         testing=False
     ):
+        """Returns the variables`requested_variables` with cubes spaning the
+        hyper bounding box of `x`, `y`, `z` and t as the closest time index to
+        `time`.
+
+        Arguments
+        ---------
+        requested_variables: list
+            Elements are strings belonging to
+            `self.standard_variable_mapping.keys()`.
+        time: datetime
+            Date to approximate reader result.
+        x: array_like
+            Elements are `float` with projected x-axis coordinate or plain
+            fractionary reader indices of shape (M,)
+        y: array_like
+            Elements are `float` with projected y-axis coordinate or plain
+            fractionary reader indices of shape (M,)
+        z: array_like
+            Elements are `float` with depth below the reference level, positive
+            up and shape (M,)
+        testing: bool
+            ????
+
+        Returns
+        -------
+        variables: dict
+            ????
+        """
+        print('###################################')
+        print('#########REQUESTED#################')
+        print('requested vars', requested_variables)
+        print('time', time)
+        print('x', x)
+        print('y', y)
+        print('z', z)
         variables = {}
         start_time = datetime.now()
         nearestTime, dummy1, dummy2, indxTime, dummy3, dummy4 = \
@@ -614,16 +693,30 @@ class Reader(BaseReader, StructuredReader):
         variables['time'] = nearestTime
         # Find nearest x, y
         variables['x'], variables['y'] = self._get_xy(x, y)
+        xs, ys = np.meshgrid(
+            variables['x'].flatten(),
+            variables['y'].flatten())
         variables['z'], zs_at_sigma = self._get_depth_coords(
             indxTime,
-            variables['x'],
-            variables['y'],
+            xs.flatten(),
+            ys.flatten(),
             z,
         )
         for variable in requested_variables:
             # Map variable
             varname = self.standard_variable_mapping[variable]
-            variables[variable] = self.Dataset[varname]
+            if self.Dataset[varname].ndim > 2:
+                kw = {'itime': indxTime}
+            else:
+                kw = {'itime': None}
+            variables[variable] = self._interpolate_profile(
+                varname,
+                xs,
+                ys,
+                zs_at_sigma,
+                variables['z'],
+                **kw,
+            )
             print("############################")
             print("######VARIABLE MAPPED#######")
             print(variable, varname)
