@@ -143,6 +143,9 @@ class Reader(BaseReader, StructuredReader):
         'x_sea_water_velocity'              : 'U1',
         'y_sea_water_velocity'              : 'V1',
     }
+
+    _mask_names = {'KCS', 'KFU', 'KFV'}
+
     zlevels = -1 * np.concatenate([
         np.arange(-10, -1,0.5),
         np.arange(-1, 1, 0.1),
@@ -700,16 +703,73 @@ class Reader(BaseReader, StructuredReader):
             cube = (cube[0], i_data, *cube[1:])
             data = r.Dataset['R1'].data[cube]
         else:
-            varname = self.standard_variable_mapping[varname]
+            try:
+                d3d_varname = self.standard_variable_mapping[varname]
+            except KeyError:
+                # For testing purposes if not mapped use 'raw' name
+                d3d_varname = varname
             # Get cube
-            data = self.Dataset[varname].data[cube]
-        # Get mask for this variable
-        mask = self._get_mask(varname, cube)
+            data = self.Dataset[d3d_varname].data[cube]
+        # Slices depending on number of dimensions of cube
+        dim_slices = {
+            4: tuple([cube[0], *cube[-2:]]),
+        }
+        # Slices for cube expansion
+        exp_slices = {
+           4: (1, data.shape[1], 1, 1)
+        }
+        # Get mask for this variable, reducing the vertical dimension
+        # when present.
+        try:
+            mask_cube = dim_slices[len(cube)]
+        except KeyError:
+            #2D  or 3D variable
+            mask_cube = cube
+        mask = self._get_mask(varname, mask_cube)
+        # Expand the vertical dimension
+        try:
+            mask = np.tile(mask, exp_slices[len(cube)]).reshape(data.shape)
+        except KeyError:
+            pass
         data[mask] = np.nan
         if varname in self._to_destagger.keys() and not testing:
+            # De-stagger variables
             # Bypass for profile testing
-            data = self._destagger(varname, cube)
+            data = self._destagger(d3d_varname, cube)
         return data
+
+    def _get_mask(self, varname, cube):
+        """
+        Returns the mask of `varname`, sliced by `cube`.
+
+        varname: str
+            Name of the variable as in the keys of
+            `self.standard_variable_mapping`.
+        cube: tuple
+            With the extent of the mask subset.
+
+        Returns
+        -------
+        numpy.ma.MaskedArray
+           Mask of `varname` for the slices in `cube`, masked with its
+           respective mask.
+        """
+        try:
+            varname = self.standard_variable_mapping[varname]
+        except KeyError:
+            # Except 'raw' d3d names for testing purposes
+            pass
+        # Get horizontal coordinates for varname
+        coords = self._get_var_coords(self.Dataset, varname)[-2:]
+        # Find the mask that contains all of the coordinates
+        for mask_name in self._mask_names:
+            # Get the horizontal coordinates for the mask
+            mcoords = self._get_var_coords(self.Dataset, mask_name)[-2:]
+            if set(coords).intersection(set(mcoords)) == set(mcoords):
+                return self.Dataset[mask_name][cube] != 1
+        # Return empty array if mask not found
+        return []
+
     def get_variables(self,
         requested_variables,
         time=None,
@@ -794,4 +854,3 @@ class Reader(BaseReader, StructuredReader):
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times
             # Interpolate each profile to the nearest z
-        return variables

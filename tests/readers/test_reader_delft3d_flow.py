@@ -135,7 +135,23 @@ class TestDelft3D(unittest.TestCase):
         xx, yy = np.meshgrid(indx, indy)
         zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
         u = r.Dataset['U1'].data
-        
+
+    def test_get_mask(self):
+        var_masks = {
+            'sea_surface_height'                : 'KCS',
+            'x_sea_water_velocity'              : 'KFU',
+            'y_sea_water_velocity'              : 'KFV',
+        }
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        for var, mask in var_masks.items():
+            ndim = r.Dataset[mask].data.ndim
+            cube = tuple([slice(None)] * ndim)
+            mask_in = r._get_mask(var, cube)
+            mask_out = r.Dataset[mask].data[:] != 1
+            assert np.allclose(mask_in.data, mask_out.data), \
+                f"Mask doesn't match for variable {var} and mask name {mask}"
 
 if __name__ == '__main__':
     unittest.main()
