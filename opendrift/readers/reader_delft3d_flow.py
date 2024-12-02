@@ -610,25 +610,22 @@ class Reader(BaseReader, StructuredReader):
         return indx, indy
 
     def _interpolate_profile(self,
-        varname,
-        xs, ys,
+        data,
         zs_at_sigma,
         z_targets,
         itime=None,
         **kwargs,
     ):
-        """Interpolates a `varname` 1D profile or a 2D sequence of N profiles
+        """Interpolates `data`  1D profile or a 2D sequence of N profiles
         (shape == (M, N)), for one grid (x, y) index (1D) or a set of N grid
         (xs, ys) indices, from their depth at sigma coordinates (`z_at_zigma`)
         to target depths `z_targets` for a single time index `itime`.
 
         Arguments
         ---------
-        varname: str
-            Standard variable name.
-        xs, ys: int, array_like
-            A set of grid indices with the same shape with
-            `xs.flatte().shapen == N`. A grid index if `xs` and `ys` are integers.
+        data: numpy.ndarray
+            With the values to interpolate arranged in (M,) for a single
+            profile or (M, N) for a sequence of profiles.
         zs_at_sigma: array_like
             Depths at the sigma coordinate for each (itime, x, y), positive-up
             from reference level. Has shape (M, N) with N == 1 if `xs` and `ys`
@@ -642,20 +639,10 @@ class Reader(BaseReader, StructuredReader):
             Interpolation result with `profiles.shape == (K, *xs.shape)` where
             `K` is the number of self.zlevels within the range of `z_targets`.
         """
-        xs = np.atleast_1d(xs)
-        ys = np.atleast_1d(ys)
         # Get all the zlevels within the range of z_targets
         z_range = np.array([z_targets.min(), z_targets.max()])
         i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
         z_targets = self.zlevels[i_range[0]: i_range[1] + 1]
-        # Cube indices for or 4D vars
-        if itime:
-            cube = (itime, slice(None), ys.flatten(), xs.flatten())
-        else:
-            cube = (slice(None), ys.flatten(), xs.flatten())
-        # Get data
-        data = self._get_cube(varname, cube, **kwargs)
-        F = np.swapaxes(data, 0, 1)
         # Interpolate profiles from z at sigma to target zlevels.
         # ROMS plofile interpolator only works with positive domains and
         # counterdomains.
@@ -676,7 +663,7 @@ class Reader(BaseReader, StructuredReader):
             )
         profiles[mask] = np.nan
         # Return profiles in the shape of the requested cube
-        return profiles.reshape(-1, *xs.shape)
+        return profiles
 
     def _get_cube(self, varname, cube, testing=False):
         """Returns a cube of `varname` data. Unpacks data from grouped
@@ -688,7 +675,12 @@ class Reader(BaseReader, StructuredReader):
             Name of the variable as in the keys of
             `self.standard_variable_mapping`.
         cube: tuple
-            With the extent of the data subset.
+            Of `slice` elements With the extent of the data subset, in the
+            following order: (times, zs, ys, xs).
+
+        Warning
+        -------
+        All elements of the tuple must be `slice` to preserve dimensionality.
 
         Returns
         -------
@@ -712,18 +704,22 @@ class Reader(BaseReader, StructuredReader):
             data = self.Dataset[d3d_varname].data[cube]
         # Slices depending on number of dimensions of cube
         dim_slices = {
+            # 3D-H cubes (time, x, y) have static masks
+            3: tuple(cube[-2:]),
+            # 4D cubes (time, z, x, y) masks don't have z dimension
             4: tuple([cube[0], *cube[-2:]]),
         }
         # Slices for cube expansion
         exp_slices = {
-           4: (1, data.shape[1], 1, 1)
+            3: (data.shape[0], 1, 1),
+            4: (1, data.shape[1], 1, 1)
         }
         # Get mask for this variable, reducing the vertical dimension
         # when present.
         try:
             mask_cube = dim_slices[len(cube)]
         except KeyError:
-            #2D  or 3D variable
+            # 2D  variable
             mask_cube = cube
         mask = self._get_mask(varname, mask_cube)
         # Expand the vertical dimension
@@ -736,7 +732,7 @@ class Reader(BaseReader, StructuredReader):
             # De-stagger variables
             # Bypass for profile testing
             data = self._destagger(d3d_varname, cube)
-        return data
+        return data, mask
 
     def _get_mask(self, varname, cube):
         """
@@ -769,6 +765,14 @@ class Reader(BaseReader, StructuredReader):
                 return self.Dataset[mask_name][cube] != 1
         # Return empty array if mask not found
         return []
+
+    def _destagger(self, d3d_varname, cube):
+        """
+        Put variable into water level grid
+
+        This 1st attempt only works for 4-D variables
+        """
+        pass
 
     def get_variables(self,
         requested_variables,
@@ -832,17 +836,28 @@ class Reader(BaseReader, StructuredReader):
             ys.flatten(),
             z,
         )
+        base_slice = (
+            slice(ys.min(), ys.max() + 1),
+            slice(xs.min(), xs.max() + 1),
+        )
+        cube_slices = {
+            3: (slice(indxTime, indxTime + 1), *base_slice),
+            4: (slice(indxTime, indxTime + 1), slice(None), *base_slice),
+        }
         for variable in requested_variables:
-            # Map variable
-            varname = self.standard_variable_mapping[variable]
-            if self.Dataset[varname].ndim > 2:
+            invarname = self.standard_variable_names[varname]
+            ndim = self.Dataset[invarname].data.ndim
+            if ndim > 2:
                 kw = {'itime': indxTime}
             else:
                 kw = {'itime': None}
+            try:
+                cube_slice = cube_slices[ndim]
+            except KeyError:
+                cube_slice = base_slice
+            cube = self._get_cube(varname, cube_slice, testing=testing)
             variables[variable] = self._interpolate_profile(
-                varname,
-                xs,
-                ys,
+                cube,
                 zs_at_sigma,
                 variables['z'],
                 **kw,
@@ -854,3 +869,4 @@ class Reader(BaseReader, StructuredReader):
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times
             # Interpolate each profile to the nearest z
+        return  variables

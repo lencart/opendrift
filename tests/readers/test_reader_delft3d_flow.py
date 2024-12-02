@@ -123,18 +123,103 @@ class TestDelft3D(unittest.TestCase):
         return r, xx, yy, zlv, zsg, u, u_int
 
     def test_get_cube(self):
+        cases = {
+            "0D-H": ('sea_floor_depth_below_sea_level', 'DPS0'),
+            "1D-HX": ('sea_floor_depth_below_sea_level', 'DPS0'),
+            "1D-HY": ('sea_floor_depth_below_sea_level', 'DPS0'),
+            "1D-HT": ('sea_surface_height', 'S1'),
+            "1D-V": ('x_sea_water_velocity', 'U1'),
+            "2D-H": ('sea_floor_depth_below_sea_level', 'DPS0'),
+            "2D-TX": ('sea_surface_height', 'S1'),
+            "2D-TY": ('sea_surface_height', 'S1'),
+            "3D-H": ('sea_surface_height', 'S1'),
+            "3D-VX": ('x_sea_water_velocity', 'U1'),
+            "3D-VY": ('x_sea_water_velocity', 'U1'),
+            "3D-V": ('x_sea_water_velocity', 'U1'),
+            "4D"  : ('x_sea_water_velocity', 'U1'),
+        }
         o = OceanDrift(loglevel=0)
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         r = reader_delft3d_flow.Reader(filename=d3d_fn)
         r.buffer = 0
         xs = [5.6, 18.2]
         ys = [2.2, 9.8]
-        zs = [0., -.999999]
-        t = 0
         indx, indy = r._get_xy(xs, ys)
         xx, yy = np.meshgrid(indx, indy)
-        zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
-        u = r.Dataset['U1'].data
+        cube_slices = {
+            "0D-H": (slice(2, 3), slice(5, 6)),
+            "1D-HX": (
+                slice(2, 3),
+                slice(xx.min(), xx.max() + 1)
+            ),
+            "1D-HY": (
+                slice(yy.min(), yy.max() + 1),
+                slice(5, 6),
+            ),
+            "1D-V": (slice(25, 26), slice(None), slice(2, 3), slice(5, 6)),
+            "1D-HT": (slice(0, 26),  slice(2, 3), slice(5, 6)),
+            "2D-H": (slice(None), slice(None)),
+            "2D-TX": (
+                slice(0, 26),
+                slice(2, 3),
+                slice(xx.min(), xx.max() + 1),
+            ),
+            "2D-TY": (
+                slice(0, 26),
+                slice(yy.min(), yy.max() + 1),
+                slice(5, 6),
+            ),
+            "3D-H": (
+                slice(0, 26),
+                slice(yy.min(), yy.max() + 1),
+                slice(xx.min(), xx.max() + 1),
+            ),
+            "3D-VX": (
+                slice(25, 26),
+                slice(None),
+                slice(2, 3),
+                slice(xx.min(), xx.max() + 1),
+            ),
+            "3D-VY": (
+                slice(25, 26),
+                slice(None),
+                slice(yy.min(), yy.max() + 1),
+                slice(5, 6),
+            ),
+            "3D-V": (
+                slice(25, 26),
+                slice(None),
+                slice(yy.min(), yy.max() + 1),
+                slice(xx.min(), xx.max() + 1),
+            ),
+            "4D": (
+                slice(0, 26),
+                slice(None),
+                slice(yy.min(), yy.max() + 1),
+                slice(xx.min(), xx.max() + 1),
+            ),
+        }
+        for acase in cases.keys():
+            invar = cases[acase][0]
+            d3dvar = cases[acase][1]
+            cube_slice = cube_slices[acase]
+            try:
+                cube, mask = r._get_cube(invar, cube_slice, testing=True)
+            except Exception as e:
+                print(e)
+                print(acase)
+                return r, xx, yy, cube_slice, None, None, None
+            raw = r.Dataset[d3dvar].data[cube_slice]
+            try:
+                assert np.allclose(cube[~mask], raw[~mask]),\
+                    f"Values fail for case {acase}"
+                assert cube.shape == raw.shape, \
+                    f"Shapes fail for case {acase}" 
+            except Exception as e:
+                print(e)
+                print(acase)
+                return r, xx, yy, cube_slice, cube, raw, mask
+        return tuple([None] * 7)
 
     def test_get_mask(self):
         var_masks = {
@@ -149,7 +234,7 @@ class TestDelft3D(unittest.TestCase):
             ndim = r.Dataset[mask].data.ndim
             cube = tuple([slice(None)] * ndim)
             mask_in = r._get_mask(var, cube)
-            mask_out = r.Dataset[mask].data[:] != 1
+            mask_out =  r.Dataset[mask].data[:] != 1
             assert np.allclose(mask_in.data, mask_out.data), \
                 f"Mask doesn't match for variable {var} and mask name {mask}"
 
