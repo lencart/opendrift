@@ -646,16 +646,19 @@ class Reader(BaseReader, StructuredReader):
         # Interpolate profiles from z at sigma to target zlevels.
         # ROMS plofile interpolator only works with positive domains and
         # counterdomains.
-        profiles, _ = drp.multi_zslice(F, -1 * zs_at_sigma, -1 * z_targets)
+        profiles, _ = drp.multi_zslice(data, -1 * zs_at_sigma, -1 * z_targets)
         # Mask profiles when z levels are outside of the z at sigma range.
         #if xs.ndim > 1:
         try:
             # It will work if there are multiple profiles to calculate
-            mask = np.logical_or(
-                z_targets[:, None] < zs_at_sigma.min(axis=0)[None, :],
-                z_targets[:, None] > zs_at_sigma.max(axis=0)[None, :],
+            mask = np.squeeze(
+                np.logical_or(
+                    z_targets[:, None] < zs_at_sigma.min(axis=0)[None, :],
+                    z_targets[:, None] > zs_at_sigma.max(axis=0)[None, :],
+                )
             )
         except IndexError:
+            print('excepted')
             # This will raise an error if there is only one profile
             mask = np.logical_or(
                 z_targets < zs_at_sigma.min(),

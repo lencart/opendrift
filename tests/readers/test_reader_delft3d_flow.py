@@ -21,6 +21,7 @@ import os
 from datetime import datetime
 import unittest
 import numpy as np
+from scipy.interpolate import interp1d
 
 from opendrift.readers import reader_delft3d_flow
 #from opendrift.readers import reader_global_landmask
@@ -85,42 +86,6 @@ class TestDelft3D(unittest.TestCase):
             ys,
             zs,
         )
-
-    def test_multi_zslice(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
-        r.buffer = 0
-        xs = [5.6, 18.2]
-        ys = [2.2, 9.8]
-        zs = [0., -.999999]
-        t = 25
-        indx, indy = r._get_xy(xs, ys)
-        xx, yy = np.meshgrid(indx, indy)
-        zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
-        u = r.Dataset['U1'].data
-        # Ask again for the indentity interpolation of z at sigma against
-        # z at sigma
-        for i in range(xx.shape[0]):
-            for j in range(xx.shape[1]):
-                # Make the zlevels the exact same as the sigma layers at the
-                # same horizontal indices of the cube we are requesting.
-                # This is need to guaranty that the calculated target zlevels
-                # align perfectly with the z at sigma so that we can validate
-                # the indentity operation.
-                r.zlevels = zsg[:, i*j]
-                u_int = r._interpolate_profile(
-                    'x_sea_water_velocity',
-                    xx[i, j],
-                    yy[i, j],
-                    zsg[:,i*j],
-                    zsg[(0, -1), i*j],
-                    itime=25,
-                    testing=True, # To bypass destaggering
-                )
-                assert np.allclose(u[25, :, yy[i, j], xx[i, j]], u_int.T), \
-                    f"Breaks in ({i}, {j})"
-        return r, xx, yy, zlv, zsg, u, u_int
 
     def test_get_cube(self):
         cases = {
@@ -237,6 +202,101 @@ class TestDelft3D(unittest.TestCase):
             mask_out =  r.Dataset[mask].data[:] != 1
             assert np.allclose(mask_in.data, mask_out.data), \
                 f"Mask doesn't match for variable {var} and mask name {mask}"
+
+    def test_interpolate_profiles(self):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        r.buffer = 0
+        xs = [5.6, 18.2]
+        ys = [2.2, 9.8]
+        zs = [0., -.999999]
+        t = 25
+        indx, indy = r._get_xy(xs, ys)
+        xx, yy = np.meshgrid(indx, indy)
+        d3dvar = 'U1'
+        cube_slices = {
+            "1D-V": (
+                slice(25, 26),
+                slice(None),
+                slice(yy.min(), yy.min() + 1),
+                slice(xx.min(), xx.min() + 1),
+            ),
+            "2D-V": (
+                slice(25, 26),
+                slice(None),
+                slice(yy.min(), yy.max() + 1),
+                slice(5, 6),
+            ),
+        }
+        coords = {
+            "1D-V": r._get_xy(
+                    (np.floor(xs[0]), xs[0]),
+                    (np.floor(ys[0]), ys[0]),
+                ),
+            "2D-V": r._get_xy(
+                    (np.floor(xs[0]), xs[0]),
+                    ys,
+                ),
+        }
+        outs = {"1D-V": [], "2D-V": []}
+        in_result = {}
+        for case_name, cube_slice in cube_slices.items():
+            raw = r.Dataset[d3dvar].data[cube_slice]
+            fs = []
+            xx, yy = np.meshgrid(*coords[case_name])
+            zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
+            if case_name == "2D-V":
+                # 2-DV
+                for i in np.arange(raw.shape[-2]):
+                    fs.append(
+                        interp1d(
+                            np.squeeze(zsg[:, i]),
+                            np.squeeze(raw[..., i,:]),
+                            bounds_error=False,
+                            fill_value=np.nan,
+                        )
+                    )
+            else:
+                fs.append(
+                    interp1d(
+                        np.squeeze(zsg),
+                        np.squeeze(raw),
+                        bounds_error=False,
+                        fill_value=np.nan,
+                    )
+                )
+            z_range = np.array([zlv.min(), zlv.max()])
+            i_range = np.sort(np.searchsorted(-1 * r.zlevels, -1 * z_range))
+            z_targets = r.zlevels[i_range[0]: i_range[1] + 1]
+            for f in fs:
+                try:
+                    outs[case_name].append(f(z_targets))
+                except Exception as e:
+                    print(e)
+                    return r, xx, yy, cube_slice, raw, data, in_result, outs
+            data = np.squeeze(raw)
+            in_result[case_name] = r._interpolate_profile(data, zsg, zlv)
+            for i, profile in enumerate(outs[case_name]):
+                rslice = {
+                    '1D-V': (slice(None)),
+                    '2D-V': (slice(None), slice(i, i + 1)),
+                }
+                aslice = rslice[case_name]
+                try:
+                    mask = np.isnan(profile)
+                    assert np.allclose(
+                        np.squeeze(in_result[case_name][aslice])[~mask],
+                        profile[~mask]
+                    ), f"Values fail for case {case_name}"
+                    assert np.squeeze(in_result[case_name][aslice]).shape \
+                        == profile.shape, f"Shapes fail for case {case_name}"
+                except Exception as e:
+                    print(e)
+                    return r, xx, yy, cube_slice, raw, data, in_result, outs
+        return r, xx, yy, cube_slice, raw, data, in_result, outs
+#        return tuple([None] * 7)
+        
 
 if __name__ == '__main__':
     unittest.main()
