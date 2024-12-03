@@ -614,7 +614,6 @@ class Reader(BaseReader, StructuredReader):
         zs_at_sigma,
         z_targets,
         itime=None,
-        **kwargs,
     ):
         """Interpolates `data`  1D profile or a 2D sequence of N profiles
         (shape == (M, N)), for one grid (x, y) index (1D) or a set of N grid
@@ -826,7 +825,6 @@ class Reader(BaseReader, StructuredReader):
             self.nearest_time(time)
         requested_variables, time, x, y, z, outside = self.check_arguments(
             requested_variables, time, x, y, z)
-        # For each variable
         variables['time'] = nearestTime
         # Find nearest x, y
         variables['x'], variables['y'] = self._get_xy(x, y)
@@ -848,26 +846,26 @@ class Reader(BaseReader, StructuredReader):
             4: (slice(indxTime, indxTime + 1), slice(None), *base_slice),
         }
         for variable in requested_variables:
-            invarname = self.standard_variable_names[varname]
+            invarname = self.standard_variable_mapping[variable]
+            print("############################")
+            print("######VARIABLE MAPPED#######")
+            print(variable, invarname)
             ndim = self.Dataset[invarname].data.ndim
-            if ndim > 2:
-                kw = {'itime': indxTime}
-            else:
-                kw = {'itime': None}
             try:
                 cube_slice = cube_slices[ndim]
             except KeyError:
                 cube_slice = base_slice
-            cube = self._get_cube(varname, cube_slice, testing=testing)
-            variables[variable] = self._interpolate_profile(
-                cube,
-                zs_at_sigma,
-                variables['z'],
-                **kw,
-            )
-            print("############################")
-            print("######VARIABLE MAPPED#######")
-            print(variable, varname)
+            cube, mask = self._get_cube(variable, cube_slice, testing=testing)
+            cube = np.squeeze(cube)
+            cube = np.atleast_2d(cube.reshape(cube.shape[0], -1))
+            if ndim > 3:
+                variables[variable] = self._interpolate_profile(
+                    cube,
+                    zs_at_sigma,
+                    variables['z'],
+                )
+            else:
+                variables[variable] = cube
             # Destagger if needed
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times

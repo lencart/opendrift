@@ -105,8 +105,8 @@ class TestDelft3D(unittest.TestCase):
             "2D-TX": ('sea_surface_height', 'S1'),
             "2D-TY": ('sea_surface_height', 'S1'),
             "3D-H": ('sea_surface_height', 'S1'),
-            "3D-VX": ('x_sea_water_velocity', 'U1'),
-            "3D-VY": ('x_sea_water_velocity', 'U1'),
+            "2D-VX": ('x_sea_water_velocity', 'U1'),
+            "2D-VY": ('x_sea_water_velocity', 'U1'),
             "3D-V": ('x_sea_water_velocity', 'U1'),
             "4D"  : ('x_sea_water_velocity', 'U1'),
         }
@@ -144,13 +144,13 @@ class TestDelft3D(unittest.TestCase):
                 slice(yy.min(), yy.max() + 1),
                 slice(xx.min(), xx.max() + 1),
             ),
-            "3D-VX": (
+            "2D-VX": (
                 slice(25, 26),
                 slice(None),
                 slice(2, 3),
                 slice(xx.min(), xx.max() + 1),
             ),
-            "3D-VY": (
+            "2D-VY": (
                 slice(25, 26),
                 slice(None),
                 slice(yy.min(), yy.max() + 1),
@@ -172,8 +172,8 @@ class TestDelft3D(unittest.TestCase):
         if not case_choice:
             choices = cases.keys()
         else:
-            choices = case_choices
-        for acase in cases.keys():
+            choices = case_choice
+        for acase in choices:
             invar = cases[acase][0]
             d3dvar = cases[acase][1]
             cube_slice = cube_slices[acase]
@@ -193,7 +193,7 @@ class TestDelft3D(unittest.TestCase):
                 print(e)
                 print(acase)
                 return r, xx, yy, cube_slice, cube, raw, mask
-        return cube, mask
+        return cube_slice, cube, mask
 
     def test_get_mask(self):
         var_masks = {
@@ -306,43 +306,50 @@ class TestDelft3D(unittest.TestCase):
         return r, xx, yy, cube_slice, raw, data, in_result, outs
 
     def test_regress_cube_interpol(self):
+        choices = [
+            '1D-V' ,
+            '2D-VX',
+            '2D-VY',
+            '3D-V' ,
+        ]
         o = OceanDrift(loglevel=0)
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         r = reader_delft3d_flow.Reader(filename=d3d_fn)
-        choices = [
-            '3D-VX',
-            '3D-VY',
-            '3D-V',
-        ]
-        xx, yy = np.meshgrid(self.xs, self.ys)
-        zlv, zsg = r._get_depth_coords(t, xx.flatten(), yy.flatten(), zs)
+        r.buffer = 0
+        indx = np.arange(r.Dataset['DPS0'].shape[1])
+        indy = np.arange(r.Dataset['DPS0'].shape[0])
         for choice in choices:
-           cube, mask = self.test_get_cube(case_choice=choice)
-           print("CUBE SHAPE", cube.shape)
+            cube_slice, cube, mask = self.test_get_cube(case_choice=[choice])
+            xx, yy = np.meshgrid(indx[cube_slice[-1]], indy[cube_slice[-2]])
+            zlv, zsg = r._get_depth_coords(
+                self.t,
+                xx.flatten(),
+                yy.flatten(),
+                self.zs
+            )
+            cube = np.squeeze(cube)
+            cube = np.atleast_2d(cube.reshape(cube.shape[0], -1))
+            profiles = r._interpolate_profile(cube, zsg, zlv)
+
 
     def test_get_variables(self):
-        if 0:
-            o = OceanDrift(loglevel=0)
-            d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-            r = reader_delft3d_flow.Reader(filename=d3d_fn)
-            varnames = [
-                'sea_floor_depth_below_sea_level',
-                'sea_surface_height',
-                'x_sea_water_velocity',
-            ]
-            xs = [5.6, 18.2]
-            ys = [2.2, 9.8]
-            zs = [0., -.999999]
-            t = 25
-            date = r.times[t]
-            r.get_variables(
-                varnames,
-                time=date,
-                x=xs,
-                y=ys,
-                z=zs,
-                testing=True,
-            )
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        varnames = [
+            'sea_floor_depth_below_sea_level',
+            'sea_surface_height',
+            'x_sea_water_velocity',
+        ]
+        date = r.times[self.t]
+        r.get_variables(
+            varnames,
+            time=date,
+            x=self.xs,
+            y=self.ys,
+            z=self.zs,
+            testing=True,
+        )
 
 if __name__ == '__main__':
     unittest.main()
