@@ -340,6 +340,7 @@ class TestDelft3D(unittest.TestCase):
             'sea_floor_depth_below_sea_level',
             'sea_surface_height',
             'x_sea_water_velocity',
+            'upward_sea_water_velocity',
         ]
         date = r.times[self.t]
         r.get_variables(

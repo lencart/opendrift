@@ -704,6 +704,9 @@ class Reader(BaseReader, StructuredReader):
                 d3d_varname = varname
             # Get cube
             data = self.Dataset[d3d_varname].data[cube]
+        print("#########IN CUBE############")
+        print("SLICE", cube)
+        print("data shape before", data.shape)
         # Slices depending on number of dimensions of cube
         dim_slices = {
             # 3D-H cubes (time, x, y) have static masks
@@ -723,17 +726,20 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             # 2D  variable
             mask_cube = cube
+        print("data shape middle", data.shape, mask_cube)
         mask = self._get_mask(varname, mask_cube)
         # Expand the vertical dimension
         try:
             mask = np.tile(mask, exp_slices[len(cube)]).reshape(data.shape)
         except KeyError:
             pass
+        print('mask shape', mask.shape)
         data[mask] = np.nan
+        print("data shape end", data.shape)
         if varname in self._to_destagger.keys() and not testing:
             # De-stagger variables
             # Bypass for profile testing
-            data = self._destagger(d3d_varname, cube)
+            data = self._destagger(d3d_varname, data)
         return data, mask
 
     def _get_mask(self, varname, cube):
@@ -764,7 +770,18 @@ class Reader(BaseReader, StructuredReader):
             # Get the horizontal coordinates for the mask
             mcoords = self._get_var_coords(self.Dataset, mask_name)[-2:]
             if set(coords).intersection(set(mcoords)) == set(mcoords):
-                return self.Dataset[mask_name][cube] != 1
+                try:
+                    # See if the cube fits
+                    return self.Dataset[mask_name].data[cube] != 1
+                except IndexError:
+                    # If not, use just the horizontal coords but return the
+                    # mask with the same shape as the cube. This will work
+                    # for 3D or 4D variables with masks that do not vary with
+                    # time: e.g WPHY.
+                    out = self.Dataset[mask_name].data[cube[-2:]] != 1
+                    newshape = (*(len(cube) * [1]), *out.shape[-2:])
+                    return out.reshape(newshape)
+
         # Return empty array if mask not found
         return []
 
@@ -774,7 +791,7 @@ class Reader(BaseReader, StructuredReader):
 
         This 1st attempt only works for 4-D variables
         """
-        pass
+        return cube
 
     def get_variables(self,
         requested_variables,
@@ -856,8 +873,12 @@ class Reader(BaseReader, StructuredReader):
             except KeyError:
                 cube_slice = base_slice
             cube, mask = self._get_cube(variable, cube_slice, testing=testing)
+            print("#####BACK IN GET_DATA########")
+            print("shape of cube", cube.shape)
             cube = np.squeeze(cube)
+            print("shape of cube after squeeze", cube.shape)
             cube = np.atleast_2d(cube.reshape(cube.shape[0], -1))
+            print("shape of cube after atleast_2d", cube.shape)
             if ndim > 3:
                 variables[variable] = self._interpolate_profile(
                     cube,
