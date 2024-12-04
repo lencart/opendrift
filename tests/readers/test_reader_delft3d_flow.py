@@ -63,10 +63,11 @@ class TestDelft3D(unittest.TestCase):
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
         o.add_reader(myreader)
+        npar = 5000
         print("start_time", myreader.start_time)
-        o.seed_elements(lat=53.52, lon=6.0, radius=0, number=10,
-                z=np.linspace(0, -1, 10), time=myreader.start_time)
-        o.run(time_step=15*60, steps=10)
+        o.seed_elements(lat=53.52, lon=6.0, radius=5000, number=npar,
+                z=np.linspace(0, -1, npar), time=myreader.start_time)
+        o.run(time_step=15*60, steps=51)
         return o, myreader
 
     def test_projected(self):
@@ -336,14 +337,17 @@ class TestDelft3D(unittest.TestCase):
         o = OceanDrift(loglevel=0)
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         r = reader_delft3d_flow.Reader(filename=d3d_fn)
-        varnames = [
-            'sea_floor_depth_below_sea_level',
-            'sea_surface_height',
-            'x_sea_water_velocity',
-            'upward_sea_water_velocity',
-        ]
+        not_vars = {
+            'time',
+            'longitude',
+            'latitude',
+            'sigma',
+            'land_binary_mask',
+            'sea_water_speed',
+        }
+        varnames = list(set(r.variables) - not_vars)
         date = r.times[self.t]
-        r.get_variables(
+        variables = r.get_variables(
             varnames,
             time=date,
             x=self.xs,
@@ -351,6 +355,7 @@ class TestDelft3D(unittest.TestCase):
             z=self.zs,
             testing=True,
         )
+        return r, variables
 
 if __name__ == '__main__':
     unittest.main()

@@ -694,8 +694,8 @@ class Reader(BaseReader, StructuredReader):
             # Go into `R1` and extract cube
             i_data = self._r1_variables[varname]
             # Assumes always a 4D cube for R1 variables
-            cube = (cube[0], i_data, *cube[1:])
-            data = r.Dataset['R1'].data[cube]
+            r1_cube = (cube[0], i_data, *cube[1:])
+            data = self.Dataset['R1'].data[r1_cube]
         else:
             try:
                 d3d_varname = self.standard_variable_mapping[varname]
@@ -758,13 +758,19 @@ class Reader(BaseReader, StructuredReader):
            Mask of `varname` for the slices in `cube`, masked with its
            respective mask.
         """
+        print('cube slice asked in mask', cube)
         try:
             varname = self.standard_variable_mapping[varname]
         except KeyError:
             # Except 'raw' d3d names for testing purposes
             pass
+
         # Get horizontal coordinates for varname
-        coords = self._get_var_coords(self.Dataset, varname)[-2:]
+        try:
+            coords = self._get_var_coords(self.Dataset, varname)[-2:]
+        except KeyError:
+            # Handle R1 grouped variables
+            coords = self._get_var_coords(self.Dataset, 'R1')[-2:]
         # Find the mask that contains all of the coordinates
         for mask_name in self._mask_names:
             # Get the horizontal coordinates for the mask
@@ -867,7 +873,11 @@ class Reader(BaseReader, StructuredReader):
             print("############################")
             print("######VARIABLE MAPPED#######")
             print(variable, invarname)
-            ndim = self.Dataset[invarname].data.ndim
+            try:
+                ndim = self.Dataset[invarname].data.ndim
+            except KeyError:
+                # Handle variables grouped in R1
+                ndim = self.Dataset['R1'].data.ndim - 1
             try:
                 cube_slice = cube_slices[ndim]
             except KeyError:
