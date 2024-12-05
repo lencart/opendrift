@@ -358,6 +358,47 @@ class TestDelft3D(unittest.TestCase):
         )
         return r, variables
 
+    def test_get_4D_top_level_var(self):
+        o = OceanDrift(loglevel=0)
+        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
+        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        depth = r.Dataset['DPS0'].data
+        eta = r.Dataset['S1'].data[self.t, ...]
+        sigma = r.Dataset['SIG_LYR'].data
+        zeta = depth + eta
+        zsigma = np.atleast_1d(zeta)[None, :] * sigma[:, None, None]
+        date = r.times[self.t]
+        # Slice that is used to subset the dataset in get_variables
+        aslice = (
+            slice(None, None, None),
+            slice(0, 14, None),
+            slice(0, 21, None)
+        )
+        zsigma = zsigma[aslice]
+        variables = r.get_variables(
+            ['x_sea_water_velocity'],
+            time=date,
+            x=self.xs,
+            y=self.ys,
+            testing=True,
+        )
+        min_sigma = zsigma[0,:].min()
+        iz_level = np.searchsorted(-1 * r.zlevels, -1 * min_sigma)
+        zlevel = r.zlevels[iz_level]
+        try:
+            assert np.allclose(zlevel, variables['z']), \
+                (
+                    f"Calculated z {variables['z']} is not equal to minimum z at"
+                    f"sigma top layer {zlevel}"
+                )
+        except AssertionError as e:
+            print(e)
+            return r, variables, zsigma
+        return r, variables, zsigma
+
+
+
+
 if __name__ == '__main__':
     unittest.main()
 

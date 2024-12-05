@@ -341,7 +341,7 @@ class Reader(BaseReader, StructuredReader):
             # Map the masked with the exact number of cells from the scale
             coord.data[coord.mask] = outer[coord.mask]
             outers.append(outer)
-        return x, y, outers
+        return x.data, y.data, outers
 
     def _get_independent_vars(self):
         """Parses variable mapping and fetches time, x and y into object
@@ -364,7 +364,9 @@ class Reader(BaseReader, StructuredReader):
         self.lon = np.ma.masked_where(mask, self.Dataset[varname].data)
         varname = self.standard_variable_mapping['latitude']
         self.lat = np.ma.masked_where(mask, self.Dataset[varname].data)
-        #self.lon, self.lat, _ = self._fill_masked_coords(self.lon, self.lat)
+        self._lon_mask = self.lon.mask.copy()
+        self._lat_mask = self.lat.mask.copy()
+        self.lon, self.lat, _ = self._fill_masked_coords(self.lon, self.lat)
         try:
             varname = self.standard_variable_mapping['sigma']
             self.sigma = self.Dataset[varname].data
@@ -457,7 +459,7 @@ class Reader(BaseReader, StructuredReader):
                 )
                 block_x, block_y = np.mgrid[self.xmin:self.xmax + 1,
                                             self.ymin:self.ymax + 1]
-                mask = np.logical_not(self.lon.mask)
+                mask = np.logical_not(self._lon_mask)
                 block_x, block_y = block_x.T, block_y.T
                 spl_x = LinearNDInterpolator(
                     (self.lon[mask].ravel(), self.lat[mask].ravel()),
@@ -487,7 +489,7 @@ class Reader(BaseReader, StructuredReader):
         if self.projected:
             return super().xy2lonlat(x, y)
         else:
-            mask = self.lon.mask
+            mask = self._lon_mask
             np.seterr(invalid='ignore')  # Disable warnings for nan-values
             y = np.atleast_1d(y).astype('float64')
             x = np.atleast_1d(x).astype('float64')
@@ -497,9 +499,7 @@ class Reader(BaseReader, StructuredReader):
             y[y < self.ymin] = np.nan
             y[y < self.ymin] = np.nan
             lon_in = self.lon.copy()
-            lon_in[mask] = np.nan
             lat_in = self.lat.copy()
-            lat_in[mask] = np.nan
             lon = map_coordinates(lon_in, [y, x],
                                   order=1,
                                   cval=np.nan,
@@ -520,13 +520,14 @@ class Reader(BaseReader, StructuredReader):
                 )
             )
         else:
-            mask = self.lon.mask
+            mask = self._lon_mask
+            lons = self.lon.copy()
+            lats = self.lat.copy()
+            print(mask)
             # Fill in the mask with very large numbers so that the distance
             # between a valid node and a masked one is huge and that node
             # is not selected as the smallest distance.
-            lons = self.lon.data.copy()
             lons[mask] = 1e6
-            lats = self.lat.data.copy()
             lats[mask] = 1e6
             geod = pyproj.Geod(ellps='WGS84')  # Define an ellipsoid
             dist_x = geod.inv(lons[:,:-1], lats[:,:-1], lons[:,1:], lats[:,1:],
@@ -574,15 +575,23 @@ class Reader(BaseReader, StructuredReader):
             .standard_variable_mapping['sea_floor_depth_below_sea_level']
         eta_name = self.standard_variable_mapping['sea_surface_height']
         sig_name = self.standard_variable_mapping['sigma']
-        # Find the nearest zlevels to the z_targets
-        # TO DO: NEEDS TO BE CHANGED INTO SEARCHSORTED
-        zlevels = self.zlevels[nearest(self.zlevels, z_targets)]
         # Dynamic depth at (t, x, y)
         zeta = self.Dataset[dep_name].data[ys, xs] \
             + self.Dataset[eta_name].data[t, ys, xs]
         # z levels at sigma coordinates
         zs = np.atleast_1d(zeta)[None, :] * self.Dataset[sig_name].data[:, None]
-        return zlevels, zs
+        # Get all the zlevels within the range of z_targets
+        try:
+            z_range = np.array([z_targets.min(), z_targets.max()])
+        except AttributeError:
+            # When z is none, return just the 1st sigma level
+            z_range =  np.atleast_1d(zs[0, :].min())
+            i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
+            z_targets = self.zlevels[i_range]
+        else:
+            i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
+            z_targets = self.zlevels[i_range[0]: i_range[-1] + 1]
+        return z_targets, zs
 
     def _get_xy(self, x, y):
         """Calculates the target horizontal grid indices.
@@ -638,10 +647,6 @@ class Reader(BaseReader, StructuredReader):
             Interpolation result with `profiles.shape == (K, *xs.shape)` where
             `K` is the number of self.zlevels within the range of `z_targets`.
         """
-        # Get all the zlevels within the range of z_targets
-        z_range = np.array([z_targets.min(), z_targets.max()])
-        i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
-        z_targets = self.zlevels[i_range[0]: i_range[1] + 1]
         # Interpolate profiles from z at sigma to target zlevels.
         # ROMS plofile interpolator only works with positive domains and
         # counterdomains.
@@ -663,6 +668,7 @@ class Reader(BaseReader, StructuredReader):
                 z_targets < zs_at_sigma.min(),
                 z_targets > zs_at_sigma.max(),
             )
+        mask = np.atleast_2d(mask)
         profiles[mask] = np.nan
         # Return profiles in the shape of the requested cube
         return profiles
@@ -734,6 +740,9 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             pass
         print('mask shape', mask.shape)
+        print('##############################################')
+        print('Number of masked points', np.sum(mask.astype(int)))
+        print('##############################################')
         data[mask] = np.nan
         print("data shape end", data.shape)
         if varname in self._to_destagger.keys() and not testing:
@@ -890,13 +899,22 @@ class Reader(BaseReader, StructuredReader):
             cube = np.atleast_2d(cube.reshape(cube.shape[0], -1))
             print("shape of cube after atleast_2d", cube.shape)
             if ndim > 3:
+                # Send to profile interpolation and reshape it back into an
+                # (zs, ys, xs) cube
                 variables[variable] = self._interpolate_profile(
                     cube,
                     zs_at_sigma,
                     variables['z'],
-                )
+                ).reshape(-1, *mask.shape[-2:]).squeeze()
+                
             else:
                 variables[variable] = cube
+            print('############################################')
+            print('############################################')
+            print('############VARIABLE########################')
+            print('############OUTPUT##########################')
+            print('############################################')
+            print('variable shape', variable, variables[variable].shape)
             # Destagger if needed
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times
