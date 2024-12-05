@@ -38,38 +38,32 @@ class TestDelft3D(unittest.TestCase):
         d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
         myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
         print(myreader)
-        return myreader
+        return o, myreader
 
     def test_get_var_coords(self):
-        o = OceanDrift(loglevel=30)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
-        h_coords = myreader._get_var_coords(myreader.Dataset, 'S1')
-        u_coords = myreader._get_var_coords(myreader.Dataset, 'U1')
-        v_coords = myreader._get_var_coords(myreader.Dataset, 'V1')
-        w_coords = myreader._get_var_coords(myreader.Dataset, 'W')
+        o, r = self.test_open_datastream()
+        h_coords = r._get_var_coords(r.Dataset, 'S1')
+        u_coords = r._get_var_coords(r.Dataset, 'U1')
+        v_coords = r._get_var_coords(r.Dataset, 'V1')
+        w_coords = r._get_var_coords(r.Dataset, 'W')
         assert h_coords == ['time', 'XZ', 'YZ'], h_coords
         assert u_coords == ['time', 'KMAXOUT_RESTR', 'XCOR', 'YZ'], u_coords
         assert v_coords == ['time', 'KMAXOUT_RESTR', 'XZ', 'YCOR'], v_coords
         assert w_coords == ['time', 'KMAXOUT', 'XZ', 'YZ'], w_coords
 
     def test_add_reader(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
-        o.add_reader(myreader)
+        o, r = self.test_open_datastream()
+        o.add_reader(r)
 
     def test_seed_run(self):
-        o = OceanDrift(loglevel=30)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        myreader = reader_delft3d_flow.Reader(filename=d3d_fn)
-        o.add_reader(myreader)
+        o, r = self.test_open_datastream()
+        o.add_reader(r)
         npar = 5000
-        print("start_time", myreader.start_time)
+        print("start_time", r.start_time)
         o.seed_elements(lat=53.52, lon=6.0, radius=5000, number=npar,
-                z=np.linspace(0, -100, npar), time=myreader.start_time)
+                z=np.linspace(0, -100, npar), time=r.start_time)
         o.run(time_step=15*60, steps=50)
-        return o, myreader
+        return o, r
 
     def test_projected(self):
         o = OceanDrift(loglevel=30)
@@ -83,9 +77,7 @@ class TestDelft3D(unittest.TestCase):
             print(f"Got {err}")
 
     def test_get_depth_coordinates(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         r.buffer = 0
         indx, indy = r._get_xy(self.xs, self.ys)
         xx, yy = np.meshgrid(indx, indy)
@@ -112,9 +104,7 @@ class TestDelft3D(unittest.TestCase):
             "3D-V": ('x_sea_water_velocity', 'U1'),
             "4D"  : ('x_sea_water_velocity', 'U1'),
         }
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         r.buffer = 0
         indx, indy = r._get_xy(self.xs, self.ys)
         xx, yy = np.meshgrid(indx, indy)
@@ -203,9 +193,7 @@ class TestDelft3D(unittest.TestCase):
             'x_sea_water_velocity'              : 'KFU',
             'y_sea_water_velocity'              : 'KFV',
         }
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         for var, mask in var_masks.items():
             ndim = r.Dataset[mask].data.ndim
             cube = tuple([slice(None)] * ndim)
@@ -215,9 +203,7 @@ class TestDelft3D(unittest.TestCase):
                 f"Mask doesn't match for variable {var} and mask name {mask}"
 
     def test_interpolate_profiles(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         r.buffer = 0
         indx, indy = r._get_xy(self.xs, self.ys)
         xx, yy = np.meshgrid(indx, indy)
@@ -249,6 +235,7 @@ class TestDelft3D(unittest.TestCase):
         outs = {"1D-V": [], "2D-V": []}
         in_result = {}
         for case_name, cube_slice in cube_slices.items():
+            print(case_name)
             raw = r.Dataset[d3dvar].data[cube_slice]
             fs = []
             xx, yy = np.meshgrid(*coords[case_name])
@@ -314,9 +301,7 @@ class TestDelft3D(unittest.TestCase):
             '2D-VY',
             '3D-V' ,
         ]
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         r.buffer = 0
         indx = np.arange(r.Dataset['DPS0'].shape[1])
         indy = np.arange(r.Dataset['DPS0'].shape[0])
@@ -335,9 +320,7 @@ class TestDelft3D(unittest.TestCase):
 
 
     def test_get_variables(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         not_vars = {
             'time',
             'longitude',
@@ -359,9 +342,7 @@ class TestDelft3D(unittest.TestCase):
         return r, variables
 
     def test_get_4D_top_level_var(self):
-        o = OceanDrift(loglevel=0)
-        d3d_fn = o.test_data_folder() + 'delft3d_flow/trim-f34_wgs84.nc'
-        r = reader_delft3d_flow.Reader(filename=d3d_fn)
+        o, r = self.test_open_datastream()
         depth = r.Dataset['DPS0'].data
         eta = r.Dataset['S1'].data[self.t, ...]
         sigma = r.Dataset['SIG_LYR'].data

@@ -422,8 +422,6 @@ class Reader(BaseReader, StructuredReader):
         return coordsout
 
     def _overload_xy_grid(self):
-        print('########################')
-        print('########OVERLOADIND####')
         if isinstance(self.proj, fakeproj):
             logger.warning(
                 (
@@ -523,7 +521,6 @@ class Reader(BaseReader, StructuredReader):
             mask = self._lon_mask
             lons = self.lon.copy()
             lats = self.lat.copy()
-            print(mask)
             # Fill in the mask with very large numbers so that the distance
             # between a valid node and a masked one is huge and that node
             # is not selected as the smallest distance.
@@ -662,7 +659,6 @@ class Reader(BaseReader, StructuredReader):
                 )
             )
         except IndexError:
-            print('excepted')
             # This will raise an error if there is only one profile
             mask = np.logical_or(
                 z_targets < zs_at_sigma.min(),
@@ -710,9 +706,6 @@ class Reader(BaseReader, StructuredReader):
                 d3d_varname = varname
             # Get cube
             data = self.Dataset[d3d_varname].data[cube]
-        print("#########IN CUBE############")
-        print("SLICE", cube)
-        print("data shape before", data.shape)
         # Slices depending on number of dimensions of cube
         dim_slices = {
             # 3D-H cubes (time, x, y) have static masks
@@ -732,19 +725,13 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             # 2D  variable
             mask_cube = cube
-        print("data shape middle", data.shape, mask_cube)
         mask = self._get_mask(varname, mask_cube)
         # Expand the vertical dimension
         try:
             mask = np.tile(mask, exp_slices[len(cube)]).reshape(data.shape)
         except KeyError:
             pass
-        print('mask shape', mask.shape)
-        print('##############################################')
-        print('Number of masked points', np.sum(mask.astype(int)))
-        print('##############################################')
         data[mask] = np.nan
-        print("data shape end", data.shape)
         if varname in self._to_destagger.keys() and not testing:
             # De-stagger variables
             # Bypass for profile testing
@@ -879,9 +866,6 @@ class Reader(BaseReader, StructuredReader):
         }
         for variable in requested_variables:
             invarname = self.standard_variable_mapping[variable]
-            print("############################")
-            print("######VARIABLE MAPPED#######")
-            print(variable, invarname)
             try:
                 ndim = self.Dataset[invarname].data.ndim
             except KeyError:
@@ -892,12 +876,8 @@ class Reader(BaseReader, StructuredReader):
             except KeyError:
                 cube_slice = base_slice
             cube, mask = self._get_cube(variable, cube_slice, testing=testing)
-            print("#####BACK IN GET_DATA########")
-            print("shape of cube", cube.shape)
             cube = np.squeeze(cube)
-            print("shape of cube after squeeze", cube.shape)
             cube = np.atleast_2d(cube.reshape(cube.shape[0], -1))
-            print("shape of cube after atleast_2d", cube.shape)
             if ndim > 3:
                 # Send to profile interpolation and reshape it back into an
                 # (zs, ys, xs) cube
@@ -909,12 +889,6 @@ class Reader(BaseReader, StructuredReader):
                 
             else:
                 variables[variable] = cube
-            print('############################################')
-            print('############################################')
-            print('############VARIABLE########################')
-            print('############OUTPUT##########################')
-            print('############################################')
-            print('variable shape', variable, variables[variable].shape)
             # Destagger if needed
             # extract those profiles for these times
             # Do the vertical transformation for those profiles at this times
