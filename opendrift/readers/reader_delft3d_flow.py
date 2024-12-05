@@ -558,8 +558,10 @@ class Reader(BaseReader, StructuredReader):
             Time index when to look for the depth coordinates
         xs, ys: array_like
             With the indices for target grid cells
-        z_targets:
-            Requested approximate depths to avaluate the variables
+        z_targets: numpy.array, None
+            Requested approximate depths to avaluate the variables. If it is
+            None, it triggers interpolation to the minimum z-level (deepest) of
+            the surface sigma layer.
 
         Returns
         -------
@@ -657,14 +659,13 @@ class Reader(BaseReader, StructuredReader):
                     z_targets[:, None] < zs_at_sigma.min(axis=0)[None, :],
                     z_targets[:, None] > zs_at_sigma.max(axis=0)[None, :],
                 )
-            )
+            ).reshape(profiles.shape)
         except IndexError:
             # This will raise an error if there is only one profile
             mask = np.logical_or(
                 z_targets < zs_at_sigma.min(),
                 z_targets > zs_at_sigma.max(),
-            )
-        mask = np.atleast_2d(mask)
+            ).reshape(profiles.shape)
         profiles[mask] = np.nan
         # Return profiles in the shape of the requested cube
         return profiles
@@ -838,6 +839,9 @@ class Reader(BaseReader, StructuredReader):
         print('x', x)
         print('y', y)
         print('z', z)
+        if z is not None:
+            # Convert to numpy array
+            z =  np.atleast_1d(z)
         variables = {}
         start_time = datetime.now()
         nearestTime, dummy1, dummy2, indxTime, dummy3, dummy4 = \

@@ -30,7 +30,7 @@ from opendrift.models.oceandrift import OceanDrift
 class TestDelft3D(unittest.TestCase):
     xs = [5.6, 18.2]
     ys = [2.2, 9.8]
-    zs = [0., -.999999]
+    zs = np.atleast_1d([0., -.999999])
     t = 25
 
     def test_open_datastream(self):
@@ -169,22 +169,12 @@ class TestDelft3D(unittest.TestCase):
             invar = cases[acase][0]
             d3dvar = cases[acase][1]
             cube_slice = cube_slices[acase]
-            try:
-                cube, mask = r._get_cube(invar, cube_slice, testing=True)
-            except Exception as e:
-                print(e)
-                print(acase)
-                return r, xx, yy, cube_slice, None, None, None
+            cube, mask = r._get_cube(invar, cube_slice, testing=True)
             raw = r.Dataset[d3dvar].data[cube_slice]
-            try:
-                assert np.allclose(cube[~mask], raw[~mask]),\
-                    f"Values fail for case {acase}"
-                assert cube.shape == raw.shape, \
-                    f"Shapes fail for case {acase}" 
-            except Exception as e:
-                print(e)
-                print(acase)
-                return r, xx, yy, cube_slice, cube, raw, mask
+            assert np.allclose(cube[~mask], raw[~mask]),\
+                f"Values fail for case {acase}"
+            assert cube.shape == raw.shape, \
+                f"Shapes fail for case {acase}" 
         return cube_slice, cube, mask
 
     def test_get_mask(self):
@@ -268,12 +258,9 @@ class TestDelft3D(unittest.TestCase):
             i_range = np.sort(np.searchsorted(-1 * r.zlevels, -1 * z_range))
             z_targets = r.zlevels[i_range[0]: i_range[1] + 1]
             for f in fs:
-                try:
-                    outs[case_name].append(f(z_targets))
-                except Exception as e:
-                    print(e)
-                    return r, xx, yy, cube_slice, raw, data, in_result, outs
+                outs[case_name].append(f(z_targets))
             data = np.squeeze(raw)
+            data = np.atleast_2d(data.reshape(data.shape[0], -1))
             in_result[case_name] = r._interpolate_profile(data, zsg, zlv)
             for i, profile in enumerate(outs[case_name]):
                 rslice = {
@@ -281,17 +268,13 @@ class TestDelft3D(unittest.TestCase):
                     '2D-V': (slice(None), slice(i, i + 1)),
                 }
                 aslice = rslice[case_name]
-                try:
-                    mask = np.isnan(profile)
-                    assert np.allclose(
-                        np.squeeze(in_result[case_name][aslice])[~mask],
-                        profile[~mask]
-                    ), f"Values fail for case {case_name}"
-                    assert np.squeeze(in_result[case_name][aslice]).shape \
-                        == profile.shape, f"Shapes fail for case {case_name}"
-                except Exception as e:
-                    print(e)
-                    return r, xx, yy, cube_slice, raw, data, in_result, outs
+                mask = np.isnan(profile)
+                assert np.allclose(
+                    np.squeeze(in_result[case_name][aslice])[~mask],
+                    profile[~mask]
+                ), f"Values fail for case {case_name}"
+                assert np.squeeze(in_result[case_name][aslice]).shape \
+                    == profile.shape, f"Shapes fail for case {case_name}"
         return r, xx, yy, cube_slice, raw, data, in_result, outs
 
     def test_regress_cube_interpol(self):
@@ -366,15 +349,11 @@ class TestDelft3D(unittest.TestCase):
         min_sigma = zsigma[0,:].min()
         iz_level = np.searchsorted(-1 * r.zlevels, -1 * min_sigma)
         zlevel = r.zlevels[iz_level]
-        try:
-            assert np.allclose(zlevel, variables['z']), \
-                (
-                    f"Calculated z {variables['z']} is not equal to minimum z at"
-                    f"sigma top layer {zlevel}"
-                )
-        except AssertionError as e:
-            print(e)
-            return r, variables, zsigma
+        assert np.allclose(zlevel, variables['z']), \
+            (
+                f"Calculated z {variables['z']} is not equal to minimum z at"
+                f"sigma top layer {zlevel}"
+            )
         return r, variables, zsigma
 
 
