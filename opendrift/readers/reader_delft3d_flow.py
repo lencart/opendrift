@@ -534,7 +534,7 @@ class Reader(BaseReader, StructuredReader):
             mindists = [np.nanmin(dist_x), np.nanmin(dist_y)]
             # Take the minimum distance and divide by the dimension of that
             # fakeproj axis.
-            pixelsize = np.min(mindists) / self.shape[np.argmin(mindists)]
+            pixelsize = np.mean(mindists) #/ self.shape[np.argmin(mindists)]
             return pixelsize
 
     def modulate_longitude(self, lons):
