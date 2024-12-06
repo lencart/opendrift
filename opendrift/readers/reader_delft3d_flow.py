@@ -794,7 +794,44 @@ class Reader(BaseReader, StructuredReader):
 
         This 1st attempt only works for 4-D variables
         """
-        return cube
+        print("################################")
+        print("######IN DESTAGGER##############")
+        print(d3d_varname)
+        none_slices = tuple((cube.ndim - 2) * [slice(None)])
+        base_slices = {
+            0: (
+                (slice(1, None),  slice(None)),
+                (slice(0, -1),  slice(None)),
+            ),
+            1: (
+                (slice(None),  slice(1, None)),
+                (slice(None),  slice(0, -1)),
+            )
+        }
+        # Get horizontal coords for variable and water level point
+        d3d_wlname = self.standard_variable_mapping(
+            'sea_floor_depth_below_sea_level'
+        )
+        var_coords = r._get_var_coords(self.Dataset, d3d_varname)[-2:]
+        wl_coords = r._get_var_coords(self.Dataset, d3d_wlname)[-2:]
+        # Find out what axis has the staggered coordinate
+        dim = np.argwhere(np.array(var_coords) != np.array(wl_coords)).item()
+        full_dim = min(0, cube.ndim - 2) + dim
+        print("offending dim", dim)
+        print("full dim", dim)
+        # De-stagger based on the dimensions in question
+        diff_slices = [(*none_slices, *x) for x in base_slices[dim]]
+        print("slices", diff_slices)
+        newcube = 0.5 * (
+            cube[..., diff_slices[0]] + cube[..., diff_slices[1]]
+        )
+        print('new cube shape', newcube.shape)
+        old_shape = list(cube.shape)
+        del(cube)
+        padding_size = np.prod(old_shape.pop(full_dim))
+        padding = (np.zeros(padding_size) * np.nan).reshape(old_shape)
+        newcube = np.concatenate((newcube, padding), axis=full_dim)
+        return newcube
 
     def get_variables(self,
         requested_variables,

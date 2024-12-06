@@ -356,8 +356,63 @@ class TestDelft3D(unittest.TestCase):
             )
         return r, variables, zsigma
 
-
-
+    def test_destagger(self):
+        o, r = self.test_open_datastream()
+        r.buffer = 0
+        cases = {
+            'inner': {
+                'xs': self.xs,
+                'ys': self.ys,
+                'test_slice': (slice(None), slice(2, 11), slice(5, 20)),
+                'slice_out': {
+                        'U1': (slice(None), slice(None), slice(0,-1)),
+                        'V1': (slice(None), slice(0, -1), slice(None)),
+                    }
+            },
+            'edge_y': {
+                'xs': self.xs,
+                'ys': (2.2, 15),
+                'test_slice': (slice(None), slice(2, 15), slice(5, 20))
+                'pad':
+                'pad_axis': 
+            },
+            'edge_x': {
+                'xs': (5.6, 24),
+                'ys': self.ys,
+                'test_slice': (slice(None), slice(2, 11), slice(5, 22))
+                'pad':
+                'pad_axis':
+            },
+            'edge_yx': {
+                'xs':
+                'ys':
+                'test_slice':
+                'pad_axis':
+            },
+        }
+        variables = {
+           'y_seawater_velocity',
+           'x_seawater_velocity',
+        }
+        for variable in variables:
+            d3d_variable = r.standard_variable_mapping[variable]
+            for case_name, acase in cases.items():
+                print(case_name)
+                test_slice = acase['test_slice']
+                ys = acase['ys']
+                xs = acase['xs']
+                slice_out = acase['slice_out'][d3d_variable]
+                left_cube = r.Dataset[d3d_variable].data[test_slice][0]
+                right_cube = r.Dataset[d3d_variable].data[test_slice][1]
+                inner_cube = 0.5 * (left_cube + right_cube)
+                try:
+                    pad = acase['pad']
+                    full_cube = np.concatenate(
+                        (inner_cube, pad),
+                        axis=acase['pad_axis'],
+                    )
+                except:
+                    full_cube = inner_cube
 
 if __name__ == '__main__':
     unittest.main()
