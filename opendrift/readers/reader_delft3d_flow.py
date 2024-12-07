@@ -128,10 +128,11 @@ class Reader(BaseReader, StructuredReader):
         'sea_surface_height'                : 'S1',
         'x_sea_water_velocity'              : 'U1',
         'y_sea_water_velocity'              : 'V1',
+        'sea_water_speed'                   : 'U1', #dummy for _get_data_method
         'upward_sea_water_velocity'         : 'WPHY',
         'water_density'                     : 'RHO',
-        'sea_water_temperature'             : 'temp',
-        'sea_water_salinity'                : 'salt',
+        'sea_water_temperature'             : 'R1',
+        'sea_water_salinity'                : 'R1',
     }
 
     _r1_variables = {
@@ -169,6 +170,8 @@ class Reader(BaseReader, StructuredReader):
         self.lat = None
         self.dimensions = {}
         self.proj4 = proj4
+        # unrotated velocity cache
+        self._uv_cache = {}
         if self.proj4 is not None:
             self._parse_proj4()
         if zlevels:
@@ -534,7 +537,7 @@ class Reader(BaseReader, StructuredReader):
             mindists = [np.nanmin(dist_x), np.nanmin(dist_y)]
             # Take the minimum distance and divide by the dimension of that
             # fakeproj axis.
-            pixelsize = np.min(mindists) / self.shape[np.argmin(mindists)]
+            pixelsize = np.mean(mindists) #/ self.shape[np.argmin(mindists)]
             return pixelsize
 
     def modulate_longitude(self, lons):
@@ -693,19 +696,24 @@ class Reader(BaseReader, StructuredReader):
             Data cube containing the `varname` values for the slices in
             `cube`, masked with its respective mask.
         """
-        if varname in self._r1_variables.keys():
-            # Go into `R1` and extract cube
-            i_data = self._r1_variables[varname]
-            # Assumes always a 4D cube for R1 variables
-            r1_cube = (cube[0], i_data, *cube[1:])
-            data = self.Dataset['R1'].data[r1_cube]
-        else:
-            try:
-                d3d_varname = self.standard_variable_mapping[varname]
-            except KeyError:
-                # For testing purposes if not mapped use 'raw' name
-                d3d_varname = varname
-            # Get cube
+        get_data_method = {
+            'R1': self._get_r1_data,
+            'U1': self._get_uv_data,
+            'V1': self._get_uv_data,
+        }
+        print("##################################")
+        print("####### IN CUBE ##################")
+        print("##################################")
+        print("Asked for", varname, "with slice", cube)
+        d3d_varname = self.standard_variable_mapping[varname]
+        try:
+            # Try if there are special get data methods
+            data, cube = get_data_method[d3d_varname](
+                varname,
+                cube,
+                testing=testing
+            )
+        except KeyError:
             data = self.Dataset[d3d_varname].data[cube]
         # Slices depending on number of dimensions of cube
         dim_slices = {
@@ -733,11 +741,88 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             pass
         data[mask] = np.nan
-        if varname in self._to_destagger.keys() and not testing:
-            # De-stagger variables
-            # Bypass for profile testing
-            data = self._destagger(d3d_varname, data)
         return data, mask
+
+    def _get_r1_data(self, varname, cube, **kwargs):
+        # Go into `R1` and extract cube
+        i_data = self._r1_variables[varname]
+        # Assumes always a 4D cube for R1 variables
+        r1_cube = (cube[0], i_data, *cube[2:])
+        data = self.Dataset['R1'].data[r1_cube]
+        cube = (cube[0], *cube[2:])
+        return data, cube
+
+    def _get_uv_data(self, varname, cube, alfas_name='ALFAS', testing=False):
+        uv_dict = {}
+        try:
+            return self._uv_cache[varname], cube
+        except KeyError:
+            # Get grid angles
+            alfas = self.Dataset[alfas_name].data[cube[-2:]]
+            # Get components
+            for var, d3dvar in self._to_destagger.items():
+                # Destagger
+                uv_dict[var] = self._destagger(d3dvar, cube, testing=testing)
+            # Rotate
+            U = uv_dict['x_sea_water_velocity'] * np.cos(alfas * np.pi / 180) \
+                - uv_dict['y_sea_water_velocity'] * np.sin(alfas * np.pi / 180)
+            V = uv_dict['x_sea_water_velocity'] * np.sin(alfas * np.pi / 180) \
+                + uv_dict['y_sea_water_velocity'] * np.cos(alfas * np.pi / 180)
+            if testing:
+                # Override rotation
+                U = uv_dict['x_sea_water_velocity']
+                V = uv_dict['x_sea_water_velocity']
+            self._uv_cache['x_sea_water_velocity'] = U
+            self._uv_cache['y_sea_water_velocity'] = V
+            self._uv_cache['sea_water_speed'] = np.sqrt(U**2 + V**2)
+            # Call again to return data
+            data, cube = self._get_uv_data(varname, cube)
+            return data, cube
+
+    def _destagger(self, d3d_varname, cube, testing=False):
+        """
+        Put variable into water level grid
+
+        This 1st attempt only works for 4-D variables
+        """
+        print("################################")
+        print("######IN DESTAGGER##############")
+        print(d3d_varname)
+        none_slices = tuple((cube.ndim - 2) * [slice(None)])
+        base_slices = {
+            0: (
+                (slice(1, None),  slice(None)),
+                (slice(0, -1),  slice(None)),
+            ),
+            1: (
+                (slice(None),  slice(1, None)),
+                (slice(None),  slice(0, -1)),
+            )
+        }
+        # Get horizontal coords for variable and water level point
+        d3d_wlname = self.standard_variable_mapping(
+            'sea_floor_depth_below_sea_level'
+        )
+        var_coords = r._get_var_coords(self.Dataset, d3d_varname)[-2:]
+        wl_coords = r._get_var_coords(self.Dataset, d3d_wlname)[-2:]
+        # Find out what axis has the staggered coordinate
+        dim = np.argwhere(np.array(var_coords) != np.array(wl_coords)).item()
+        full_dim = min(0, cube.ndim - 2) + dim
+        print("offending dim", dim)
+        print("full dim", dim)
+        # De-stagger based on the dimensions in question
+        diff_slices = [(*none_slices, *x) for x in base_slices[dim]]
+        print("slices", diff_slices)
+        newcube = 0.5 * (
+            cube[..., diff_slices[0]] + cube[..., diff_slices[1]]
+        )
+        print('new cube shape', newcube.shape)
+        old_shape = list(cube.shape)
+        del(cube)
+        padding_size = np.prod(old_shape.pop(full_dim))
+        padding = (np.zeros(padding_size) * np.nan).reshape(old_shape)
+        newcube = np.concatenate((newcube, padding), axis=full_dim)
+        return newcube
 
     def _get_mask(self, varname, cube):
         """
@@ -788,50 +873,6 @@ class Reader(BaseReader, StructuredReader):
         # Return empty array if mask not found
         return []
 
-    def _destagger(self, d3d_varname, cube):
-        """
-        Put variable into water level grid
-
-        This 1st attempt only works for 4-D variables
-        """
-        print("################################")
-        print("######IN DESTAGGER##############")
-        print(d3d_varname)
-        none_slices = tuple((cube.ndim - 2) * [slice(None)])
-        base_slices = {
-            0: (
-                (slice(1, None),  slice(None)),
-                (slice(0, -1),  slice(None)),
-            ),
-            1: (
-                (slice(None),  slice(1, None)),
-                (slice(None),  slice(0, -1)),
-            )
-        }
-        # Get horizontal coords for variable and water level point
-        d3d_wlname = self.standard_variable_mapping(
-            'sea_floor_depth_below_sea_level'
-        )
-        var_coords = r._get_var_coords(self.Dataset, d3d_varname)[-2:]
-        wl_coords = r._get_var_coords(self.Dataset, d3d_wlname)[-2:]
-        # Find out what axis has the staggered coordinate
-        dim = np.argwhere(np.array(var_coords) != np.array(wl_coords)).item()
-        full_dim = min(0, cube.ndim - 2) + dim
-        print("offending dim", dim)
-        print("full dim", dim)
-        # De-stagger based on the dimensions in question
-        diff_slices = [(*none_slices, *x) for x in base_slices[dim]]
-        print("slices", diff_slices)
-        newcube = 0.5 * (
-            cube[..., diff_slices[0]] + cube[..., diff_slices[1]]
-        )
-        print('new cube shape', newcube.shape)
-        old_shape = list(cube.shape)
-        del(cube)
-        padding_size = np.prod(old_shape.pop(full_dim))
-        padding = (np.zeros(padding_size) * np.nan).reshape(old_shape)
-        newcube = np.concatenate((newcube, padding), axis=full_dim)
-        return newcube
 
     def get_variables(self,
         requested_variables,
@@ -876,6 +917,9 @@ class Reader(BaseReader, StructuredReader):
         print('x', x)
         print('y', y)
         print('z', z)
+        # Empty unrotated velocity cache
+        for key in list(self._uv_cache.keys()):
+            self._uv_cache.pop(key)
         if z is not None:
             # Convert to numpy array
             z =  np.atleast_1d(z)
@@ -904,6 +948,12 @@ class Reader(BaseReader, StructuredReader):
         cube_slices = {
             3: (slice(indxTime, indxTime + 1), *base_slice),
             4: (slice(indxTime, indxTime + 1), slice(None), *base_slice),
+            5: (
+                slice(indxTime, indxTime + 1),
+                slice(None),
+                slice(None),
+                *base_slice,
+            ),
         }
         for variable in requested_variables:
             invarname = self.standard_variable_mapping[variable]
