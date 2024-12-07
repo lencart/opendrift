@@ -170,6 +170,8 @@ class TestDelft3D(unittest.TestCase):
             d3dvar = cases[acase][1]
             cube_slice = cube_slices[acase]
             cube, mask = r._get_cube(invar, cube_slice, testing=True)
+            # Empty velocity cache
+            r._uv_cache = {}
             raw = r.Dataset[d3dvar].data[cube_slice]
             assert np.allclose(cube[~mask], raw[~mask]),\
                 f"Values fail for case {acase}"
@@ -289,7 +291,10 @@ class TestDelft3D(unittest.TestCase):
         indx = np.arange(r.Dataset['DPS0'].shape[1])
         indy = np.arange(r.Dataset['DPS0'].shape[0])
         for choice in choices:
-            cube_slice, cube, mask = self.test_get_cube(case_choice=[choice])
+            cube_slice, cube, mask = self.test_get_cube(
+                case_choice=[choice],
+            )
+            # Empty velocity cache
             xx, yy = np.meshgrid(indx[cube_slice[-1]], indy[cube_slice[-2]])
             zlv, zsg = r._get_depth_coords(
                 self.t,
