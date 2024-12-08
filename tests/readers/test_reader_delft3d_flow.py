@@ -76,18 +76,6 @@ class TestDelft3D(unittest.TestCase):
                 f"{type(err)} error instead of {expected}")
             print(f"Got {err}")
 
-    def test_get_depth_coordinates(self):
-        o, r = self.test_open_datastream()
-        r.buffer = 0
-        indx, indy = r._get_xy(self.xs, self.ys)
-        xx, yy = np.meshgrid(indx, indy)
-        return r, r._get_depth_coords(
-            self.t,
-            xx.flatten(),
-            yy.flatten(),
-            self.zs,
-        )
-
     def test_get_cube(self, case_choice=None):
         cases = {
             "0D-H": ('sea_floor_depth_below_sea_level', 'DPS0'),
@@ -231,10 +219,9 @@ class TestDelft3D(unittest.TestCase):
             raw = r.Dataset[d3dvar].data[cube_slice]
             fs = []
             xx, yy = np.meshgrid(*coords[case_name])
+            slice_3d = (cube_slice[0], *cube_slice[2:])
             zlv, zsg = r._get_depth_coords(
-                self.t,
-                xx.flatten(),
-                yy.flatten(),
+                slice_3d,
                 self.zs)
             if case_name == "2D-V":
                 # 2-DV
@@ -294,12 +281,11 @@ class TestDelft3D(unittest.TestCase):
             cube_slice, cube, mask = self.test_get_cube(
                 case_choice=[choice],
             )
+            slice_3d = (cube_slice[0], *cube_slice[2:])
             # Empty velocity cache
             xx, yy = np.meshgrid(indx[cube_slice[-1]], indy[cube_slice[-2]])
             zlv, zsg = r._get_depth_coords(
-                self.t,
-                xx.flatten(),
-                yy.flatten(),
+                slice_3d,
                 self.zs
             )
             cube = np.squeeze(cube)
