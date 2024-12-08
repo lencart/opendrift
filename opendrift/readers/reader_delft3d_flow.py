@@ -551,7 +551,7 @@ class Reader(BaseReader, StructuredReader):
         # fakeproje xtents that can lead into np.nans outside mask
         return  np.mod(lons + 180, 360) - 180
 
-    def _get_depth_coords(self, t, xs, ys, z_targets):
+    def _get_depth_coords(self, cube_slice, z_targets):
         """Finds the nearest zlevels to the target zlevels and calculates the
         depth for each of the (t, x, y) tuples.
 
@@ -573,27 +573,32 @@ class Reader(BaseReader, StructuredReader):
         z_at_sigma: array_like
             With depths at sigma coordinates for each of the (t, x, y) tuple.
         """
-        dep_name = self \
-            .standard_variable_mapping['sea_floor_depth_below_sea_level']
-        eta_name = self.standard_variable_mapping['sea_surface_height']
-        sig_name = self.standard_variable_mapping['sigma']
         # Dynamic depth at (t, x, y)
-        zeta = self.Dataset[dep_name].data[ys, xs] \
-            + self.Dataset[eta_name].data[t, ys, xs]
+        eta = self._get_cube('sea_surface_height', cube_slice)[0]
+        dep = self._get_cube('sea_floor_depth_below_sea_level', cube_slice[-2:])[0]
+        zeta = dep + eta
         # z levels at sigma coordinates
-        zs = np.atleast_1d(zeta)[None, :] * self.Dataset[sig_name].data[:, None]
+        zs = self.sigma[:, None, None] * zeta
         # Get all the zlevels within the range of z_targets
         try:
-            z_range = np.array([z_targets.min(), z_targets.max()])
+            # Top level is the deepest z-level below deepest top-level z-sigma
+            z_max = np.min([z_targets.max(), np.nanmin(zs[0, ...]).min()])
+            # lowest level is the shallowest z-level above deepest bottom-level
+            # z-sigma
+            z_min = np.max([z_targets.min(), np.nanmin(zs[-1, ...]).min()])
+            z_range = np.array([z_min, z_max])
+            print('ZRANGE', z_range)
         except AttributeError:
             # When z is none, return just the 1st sigma level
-            z_range =  np.atleast_1d(zs[0, :].min())
+            z_range =  np.atleast_1d(np.nanmin(zs[0, ...]))
             i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
             z_targets = self.zlevels[i_range]
         else:
             i_range = np.sort(np.searchsorted(-1 * self.zlevels, -1 * z_range))
-            z_targets = self.zlevels[i_range[0]: i_range[-1] + 1]
-        return z_targets, zs
+            # Make it one less at the deepest end so that there are sigma there
+            # to interpolate from.
+            z_targets = self.zlevels[i_range[0]: i_range[-1]]
+        return z_targets, zs.reshape(self.sigma.shape[0], -1)
 
     def _get_xy(self, x, y):
         """Calculates the target horizontal grid indices.
@@ -935,12 +940,6 @@ class Reader(BaseReader, StructuredReader):
         xs, ys = np.meshgrid(
             variables['x'].flatten(),
             variables['y'].flatten())
-        variables['z'], zs_at_sigma = self._get_depth_coords(
-            indxTime,
-            xs.flatten(),
-            ys.flatten(),
-            z,
-        )
         base_slice = (
             slice(ys.min(), ys.max() + 1),
             slice(xs.min(), xs.max() + 1),
@@ -955,6 +954,10 @@ class Reader(BaseReader, StructuredReader):
                 *base_slice,
             ),
         }
+        variables['z'], zs_at_sigma = self._get_depth_coords(
+            cube_slices[3],
+            z,
+        )
         for variable in requested_variables:
             invarname = self.standard_variable_mapping[variable]
             try:
@@ -980,8 +983,4 @@ class Reader(BaseReader, StructuredReader):
                 
             else:
                 variables[variable] = cube
-            # Destagger if needed
-            # extract those profiles for these times
-            # Do the vertical transformation for those profiles at this times
-            # Interpolate each profile to the nearest z
         return  variables
