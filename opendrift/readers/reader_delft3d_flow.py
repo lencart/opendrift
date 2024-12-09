@@ -764,10 +764,17 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             # Get grid angles
             alfas = self.Dataset[alfas_name].data[cube[-2:]]
+            # final destaggered shape
+            hshape = alfas.shape
             # Get components
             for var, d3dvar in self._to_destagger.items():
                 # Destagger
-                uv_dict[var] = self._destagger(d3dvar, cube, testing=testing)
+                uv_dict[var] = self._destagger(
+                    d3dvar,
+                    cube,
+                    hshape,
+                    testing=testing
+                )
             # Rotate
             U = uv_dict['x_sea_water_velocity'] * np.cos(alfas * np.pi / 180) \
                 - uv_dict['y_sea_water_velocity'] * np.sin(alfas * np.pi / 180)
@@ -784,50 +791,95 @@ class Reader(BaseReader, StructuredReader):
             data, cube = self._get_uv_data(varname, cube)
             return data, cube
 
-    def _destagger(self, d3d_varname, cube, testing=False):
+    def _destagger(self, d3d_varname, cube, hshape, testing=False):
         """
-        Put variable into water level grid
+        Extract velocity component and re-grid it onto the water level grid.
 
-        This 1st attempt only works for 4-D variables
+        Arguments
+        ---------
+        d3d_varname: str
+            Mapped delft3d-flow netCDF variable name.
+        cube: tuple
+            With the slices of the water level grid points to extract and
+            de-stagger.
+        hsape: tuple
+            With the required shape of the horizontal components. The method
+            needs this so because of the ambiguity of shape of edge of grid
+            cases.
+
+        Returns
+        -------
+        data: numpy.array
+            With the de-staggered velocity component, padded with zeros for
+            the edge of grid cases.
         """
         print("################################")
         print("######IN DESTAGGER##############")
         print(d3d_varname)
-        none_slices = tuple((cube.ndim - 2) * [slice(None)])
-        base_slices = {
-            0: (
-                (slice(1, None),  slice(None)),
-                (slice(0, -1),  slice(None)),
-            ),
-            1: (
-                (slice(None),  slice(1, None)),
-                (slice(None),  slice(0, -1)),
-            )
-        }
+        diff_slices = [
+            len(cube) * [slice(None)],
+            len(cube) * [slice(None)],
+        ]
+        if 0:
+            base_slices = {
+                0: (
+                    (slice(1, None),  slice(None)),
+                    (slice(0, -1),  slice(None)),
+                ),
+                1: (
+                    (slice(None),  slice(1, None)),
+                    (slice(None),  slice(0, -1)),
+                )
+            }
         # Get horizontal coords for variable and water level point
-        d3d_wlname = self.standard_variable_mapping(
+        d3d_wlname = self.standard_variable_mapping[
             'sea_floor_depth_below_sea_level'
-        )
-        var_coords = r._get_var_coords(self.Dataset, d3d_varname)[-2:]
-        wl_coords = r._get_var_coords(self.Dataset, d3d_wlname)[-2:]
+        ]
+        var_coords = self._get_var_coords(self.Dataset, d3d_varname)[-2:]
+        wl_coords = self._get_var_coords(self.Dataset, d3d_wlname)[-2:]
         # Find out what axis has the staggered coordinate
         dim = np.argwhere(np.array(var_coords) != np.array(wl_coords)).item()
-        full_dim = min(0, cube.ndim - 2) + dim
-        print("offending dim", dim)
-        print("full dim", dim)
-        # De-stagger based on the dimensions in question
-        diff_slices = [(*none_slices, *x) for x in base_slices[dim]]
-        print("slices", diff_slices)
-        newcube = 0.5 * (
-            cube[..., diff_slices[0]] + cube[..., diff_slices[1]]
+        print("wl_coords", wl_coords)
+        print("var_coords", var_coords)
+        print("offending dim", dim, var_coords[dim])
+        # Extend the cube +1 in the direction of staggering to account for the
+        # element lost when averaging.
+        newcube = list(cube)
+        newcube[-2 + dim] = slice(
+            newcube[-2 + dim].start,
+            newcube[-2 + dim].stop + 1,
+            newcube[-2 + dim].step
         )
-        print('new cube shape', newcube.shape)
-        old_shape = list(cube.shape)
-        del(cube)
-        padding_size = np.prod(old_shape.pop(full_dim))
-        padding = (np.zeros(padding_size) * np.nan).reshape(old_shape)
-        newcube = np.concatenate((newcube, padding), axis=full_dim)
-        return newcube
+        print('old cube', cube)
+        print('new cube', newcube)
+        # Get the full original cube and return if testing
+        if testing:
+            return self.Dataset[d3d_varname].data[cube]
+        # Get the data with the new cube and continue destaggering
+        data = self.Dataset[d3d_varname].data[tuple(newcube)]
+        print('data shape', data.shape)
+        # Slices for the averaging elements along the staggered dimension
+        diff_slices[0][-2 + dim] = slice(1, None)
+        diff_slices[1][-2 + dim] = slice(0, -1)
+        # De-stagger based on the dimensions in question
+        print("slices", diff_slices)
+        data = 0.5 * (
+            data[tuple(diff_slices[0])] + data[tuple(diff_slices[1])]
+        )
+        print('new data shape', data.shape)
+        # Try to fit it in a cube of the original shape
+        padding = np.zeros((*data.shape[:len(data.shape) - 2], *hshape))
+        try:
+            padding[:] = data
+        except ValueError:
+            # If this is an edgecase use the padding for the extra elements
+            # along the staggered dimension
+            subset = data.ndim * [slice(None)]
+            subset[-2 + dim] = slice(0, hshape[dim] - 1)
+            print('Subset slices', subset)
+            padding[tuple(subset)] = data
+        del(data)
+        return padding
 
     def _get_mask(self, varname, cube):
         """
