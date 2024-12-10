@@ -183,7 +183,7 @@ class TestDelft3D(unittest.TestCase):
         for var, mask in var_masks.items():
             ndim = r.Dataset[mask].data.ndim
             cube = tuple([slice(None)] * ndim)
-            mask_in = r._get_mask(var, cube)
+            mask_in, *rest = r._get_mask(var, cube)
             mask_out = r.Dataset[mask].data[:] != 1
             assert np.allclose(
                 mask_in.data, mask_out.data

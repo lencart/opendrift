@@ -129,7 +129,7 @@ class Reader(BaseReader, StructuredReader):
         "longitude"                         : "XZ",
         "latitude"                          : "YZ",
         "sigma"                             : "SIG_LYR",
-        "land_binary_mask"                  : "KCS",
+#        "land_binary_mask"                  : "KCS",
         "sea_floor_depth_below_sea_level"   : "DPS0",
         "sea_surface_height"                : "S1",
         "x_sea_water_velocity"              : "U1",
@@ -376,8 +376,7 @@ class Reader(BaseReader, StructuredReader):
             "y": "latitude",
             "z": "sigma",
         }
-        mask_name = self.standard_variable_mapping["land_binary_mask"]
-        mask = self.Dataset[mask_name].data
+        mask = self.Dataset['KCS'].data
         # Find valid min and max indices
         mask = np.logical_not(mask)  # Originally False for masked values.
         varname = self.standard_variable_mapping["time"]
@@ -772,6 +771,7 @@ class Reader(BaseReader, StructuredReader):
             "R1": self._get_r1_data,
             "U1": self._get_uv_data,
             "V1": self._get_uv_data,
+            "KCS": self._get_mask,
         }
         d3d_varname = self.standard_variable_mapping[varname]
         try:
@@ -797,13 +797,17 @@ class Reader(BaseReader, StructuredReader):
         except KeyError:
             # 2D  variable
             mask_cube = cube
-        mask = self._get_mask(varname, mask_cube)
+        mask, *rest = self._get_mask(varname, mask_cube)
         # Expand the vertical dimension
         try:
             mask = np.tile(mask, exp_slices[len(cube)]).reshape(data.shape)
         except KeyError:
             pass
-        data[mask] = np.nan
+        try:
+            data[mask] = np.nan
+        except ValueError:
+            # It's probably a boolean mask.
+            data[mask] = 0
         return data, mask
 
     def _get_r1_data(self, varname, cube, **kwargs):
@@ -922,7 +926,7 @@ class Reader(BaseReader, StructuredReader):
         del data
         return padding
 
-    def _get_mask(self, varname, cube):
+    def _get_mask(self, varname, cube, **kwargs):
         """
         Returns the mask of `varname`, sliced by `cube`.
 
@@ -957,7 +961,7 @@ class Reader(BaseReader, StructuredReader):
             if set(coords).intersection(set(mcoords)) == set(mcoords):
                 try:
                     # See if the cube fits
-                    return self.Dataset[mask_name].data[cube] != 1
+                    return self.Dataset[mask_name].data[cube] != 1, cube
                 except IndexError:
                     # If not, use just the horizontal coords but return the
                     # mask with the same shape as the cube. This will work
@@ -965,10 +969,10 @@ class Reader(BaseReader, StructuredReader):
                     # time: e.g WPHY.
                     out = self.Dataset[mask_name].data[cube[-2:]] != 1
                     newshape = (*(len(cube) * [1]), *out.shape[-2:])
-                    return out.reshape(newshape)
+                    return out.reshape(newshape), cube
 
         # Return empty array if mask not found
-        return []
+        return [], None
 
     def get_variables(
         self,
