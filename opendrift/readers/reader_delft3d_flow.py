@@ -640,6 +640,8 @@ class Reader(BaseReader, StructuredReader):
             # lowest level is the shallowest z-level above deepest bottom-level
             # z-sigma
             z_min = np.max([z_targets.min(), np.nanmin(zs[-1, ...]).min()])
+            # For z-targets above z_max. This yiels a single z-target
+            z_min = min(z_min, z_max)
             z_range = np.array([z_min, z_max])
         except AttributeError:
             # When z is none, return just the 1st sigma level
@@ -651,6 +653,9 @@ class Reader(BaseReader, StructuredReader):
             # Make it one less at the deepest end so that there are sigma there
             # to interpolate from.
             z_targets = self.zlevels[i_range[0] : i_range[-1]]
+            if z_min == z_max:
+                # In the case where z_min == z_max
+                z_targets = np.atleast_1d(self.zlevels[i_range[0]])
         return z_targets, zs.reshape(self.sigma.shape[0], -1)
 
     def _get_xy(self, x, y):
