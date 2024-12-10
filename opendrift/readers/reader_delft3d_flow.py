@@ -348,32 +348,23 @@ class Reader(BaseReader, StructuredReader):
         tuple:
             With coordinate arrays filled with a value for the masked nodes.
         """
-        # Opposite axis
-        opp_axis = [1, 0]
-        # Translation array for tiling
-        tarray = np.array([[0, 1], [1, 0]])
-        outers = []
         for i, coord in enumerate([x, y]):
-            # Place the anchor point 10% of the domain span to the left and
-            # bottom of the domain
-            unmasked = np.logical_not(coord.mask)
-            anchor = coord.data[unmasked].min() - 0.1 * (
-                coord.data[unmasked].max() - coord.data[unmasked].min()
+            # Get the indices of the nodes with coordinates
+            unmasked = np.nonzero(np.logical_not(coord.mask))
+            masked = np.nonzero(coord.mask)
+            # Convert to complex
+            unmasked = unmasked[0] + 1j * unmasked[1]
+            masked = masked[0] + 1j * masked[1]
+            # Get the nearest unmasked point to masked coordinate
+            ni = nearest(unmasked, masked)
+            # Fill the masked coordinates with the values of the nearest
+            # unmasked.
+            unmasked = (
+                (unmasked.real).astype(int), (unmasked.imag).astype(int)
             )
-            # Find the mean dx
-            dx = np.abs(np.mean(np.diff(coord, axis=i)))
-            # Make a linear incremented outer domain away from the anchor point
-            outer = np.linspace(
-                anchor, anchor - dx * (coord.shape[i] - 1), coord.shape[i]
-            )
-            # Tile to get the same shape as the coordinates
-            outer = np.expand_dims(outer, axis=opp_axis[i])
-            tile_shape = coord.shape * tarray[i, :] + np.flip(tarray[i, :])
-            outer = np.tile(outer, tile_shape)
-            # Map the masked with the exact number of cells from the scale
-            coord.data[coord.mask] = outer[coord.mask]
-            outers.append(outer)
-        return x.data, y.data, outers
+            masked = ((masked.real).astype(int), (masked.imag).astype(int))
+            coord.data[masked] = coord.data[unmasked][ni]
+        return x.data, y.data, None
 
     def _get_independent_vars(self):
         """Parses variable mapping and fetches time, x and y into object
