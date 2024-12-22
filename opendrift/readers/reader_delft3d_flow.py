@@ -1050,10 +1050,10 @@ class Reader(BaseReader, StructuredReader):
         for variable in requested_variables:
             invarname = self.standard_variable_mapping[variable]
             try:
-                ndim = self.Dataset[invarname].data.ndim
+                ndim = self.Dataset[invarname].ndim
             except KeyError:
                 # Handle variables grouped in R1
-                ndim = self.Dataset["R1"].data.ndim - 1
+                ndim = self.Dataset["R1"].ndim - 1
             try:
                 cube_slice = cube_slices[ndim]
             except KeyError:
