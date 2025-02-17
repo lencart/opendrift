@@ -1,6 +1,70 @@
 History
 =======
 
+2025-02-11 / Release v1.13.0
+----------------------------
+* Major internal change: recarray ``self.history`` is replaced with Xarray dataset ``self.result``, with some minor API changes:
+
+  * The method ``run()`` now returns a pointer to this dataset, i.e. one can type ``ds = o.run()``  and subsequently analyse the results with e.g. `TrajAn <https://opendrift.github.io/trajan/>`_. The plotting/analysis methods within OpenDrift works as before, but operates now on ``self.result`` instead of ``self.history``.
+  * The method ``get_lonlats()`` has been removed, as one can now do simply ``self.result.lon`` to get longitude as an Xarray DataArray
+  * The method ``get_property()`` is obsolete for the same reason. It now issues a warning that this method will be removed in the next version. New syntax is to use ``self.result.<property>`` where property is any element properties (lon, lat, status, length etc) or environment variables (wind, currents, ...), or coordinate variables ``time`` and  ``trajectory``
+  * ``self.result.time`` is a numpy64 array, which can be converted to python datetime with ``pandas.to_datetime(self.result.time).to_pydatetime()``
+
+    * ``get_time_array()`` issues a warning that it will soon be removed, in favor of above syntax.
+
+  * Attribute ``self.steps_output`` is replaced by ``len(self.result.time)``
+  * Removed methods ``opendrift.open_xarray`` and ``io_netcdf.import_file_xarrray``, as ``opendrift.open`` now also imports lazily with Xarray.
+
+* Saved netCDF files are now compressed with Zlib level 6, and are typically 70% smaller than before.
+
+  * Data types for all element properties and environment variables are consistently `numpy.float32` internally in OpenDrift, with the benfit of NaN as masked values.
+  * In output netCDF files, element properties are encoded according to the attribute ``data_type`` as specified in the actual ElementType class.
+
+* linewidth can be specified for animations, whenever trajectories are shown
+* Generic netCDF reader and ROMS readers now use a new common method `reader.open_dataset_opendrift` to open Xarray dataset from files or URLS, and also decoding time.
+* Dynamic detection of dimension order in generic reader also for split blocks for global readers. ReaderBlock also shifts x-coordinate for global readers. General improvements for global simulations crossing both dateline and 0-meridian.
+* Reinserted hack to decode time in ROMS-croco files, which are not CF compatible
+* Updated logging mechanism. Can now send log to both file and console.
+* Replaced mambaforge with miniforge3 in circleCI config
+* ``set_up_map`` now stores ``crs_plot`` and ``crs_lonlat`` for later user. Landmask is now obtained on Mercator/plot grid (and not lonlat-grid) when ``fast=True``
+* Faster plotting:
+
+  * Getting land polygons from roaring_landmask if full resolution coastline. Also clipping polygons to plot extent, and caching per extent. This gives large speedup, in particular for animations.
+  * Using RoaringLandmask to check/screen if there is any land within plot area, otherwise skip plotting of vector coastline.
+
+* Removed obsolete method ``wind_drift_factor_from_trajectory_lw``. Could eventually be rebuilt with/around TrajAn.
+* Removed method ``disable_vertical_motion``
+* Removed obsolete method ``ShipDrift.import_ascii_format``
+* ``Leeway.export_ascii`` now limits to 5 decimals for longitudes and latitudes. Still some minor differences are sometimes seen in last decimal, thus there are two versions of output reference file in test suite.
+
+
+2024-11-26 / Release v1.12.0
+-----------------------------
+
+* Adapting OpenOil to Adios > 1.2
+* Replaced Mambaforge with Miniforge in installation instructions
+* `write_netcdf_density_map` now produces files with increasing time dimension also for backward simulations
+* Fixed bug in OceanDrift, terminal velocity not updated if vertical mixing deactivated. Thanks to Joao Lencart e Silva.
+* reader_landmask: use sequential version
+* Added possibility to add Stokes drift to Leeway model
+* Added aliases mapping ocean_vertical_salt_diffusivity (and corresponding for tracer) to ocean_vertical_diffusivity
+* Added some aliases for sea_surface_height
+* Forcing datasets:
+
+  * Replaced obsolete HYCOM thredds url with new ESPCD-v02
+  * Changing Arome arctic 12h to 6_h
+
+* reader_netCDF_CF_generic:
+
+  * if lon/lat arrays are repeated 1D arrays, these are now reduced to 1D, and reader becomes projected with lonlat
+  * Fixed bug with dateline
+  * Update for datasets where projection is available, but coordinate variable is missing
+  * Allowing for ensemble collection with a single member (invisible in coordinates)
+
+* Improved CF-compliance for netCDF output files
+* Cleaning of ROMS native reader
+* Fix for plotting Antarctica coastline, as well as ice sheet-water boorder on maps/plots
+
 2024-07-24 / Release v1.11.13
 -----------------------------
 * Ensuring that Leeway ascii output contains lat/lon without [brackets] regardless of seeding method used

@@ -63,8 +63,8 @@ class TestPhysics(unittest.TestCase):
         # Setting droplet size range for wave breaking
         o.seed_elements(4, 60, number=100, time=datetime.now(), z=-100)
         o.run(duration=timedelta(hours=3), time_step=900)
-        d_start = o.history['diameter'][:,0]
-        d_end = o.history['diameter'][:,-1]
+        d_start = o.result.diameter[:,0].values
+        d_end = o.result.diameter[:,-1].values
         # Check initial droplet sizes (expect range 0.0005 to 0.005)
         self.assertTrue(d_start.min() >
                 o.get_config('seed:droplet_diameter_min_subsea'))
@@ -89,8 +89,8 @@ class TestPhysics(unittest.TestCase):
                         diameter=diameter, z=-200)
         o.run(duration=timedelta(hours=2), time_step_output=900, time_step=900)
 
-        d_start = o.history['diameter'][:,0]
-        d_end = o.history['diameter'][:,-1]
+        d_start = o.result.diameter[:,0].values
+        d_end = o.result.diameter[:,-1].values
         # Check droplet sizes before wavebreaking
         self.assertAlmostEqual(d_start.min(), diameter)
         self.assertAlmostEqual(d_start.max(), diameter)
@@ -139,7 +139,7 @@ class TestPhysics(unittest.TestCase):
         #o.plot_vertical_distribution()
         #o.animation_profile()
         # Check minimum depth
-        self.assertAlmostEqual(o.elements.z.min(), -49.56, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -49.65, 1)
         #######################################################
 
     def test_vertical_mixing_plantoil_windonly(self):
@@ -157,7 +157,7 @@ class TestPhysics(unittest.TestCase):
 
         o.run(duration=timedelta(hours=2), time_step_output=900, time_step=900)
         #o.plot_vertical_distribution()
-        self.assertAlmostEqual(o.elements.z.min(), -48.88, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -48.61, 1)
         #######################################################
 
 
@@ -178,7 +178,7 @@ class TestPhysics(unittest.TestCase):
         o.run(duration=timedelta(hours=2),
               time_step_output=1800, time_step=1800)
         #o.plot_vertical_distribution()
-        self.assertAlmostEqual(o.elements.z.min(), -49.0, 1)
+        self.assertAlmostEqual(o.elements.z.min(), -49.2, 1)
         ########################################################
 
     def test_verticalmixing_schemes(self):
@@ -200,11 +200,11 @@ class TestPhysics(unittest.TestCase):
             o.run(duration=timedelta(hours=2), time_step=900)
 
             if scheme == 'environment':  # presently this is fallback
-                self.assertAlmostEqual(o.elements.z.min(), -49.6, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -48.9, 1)
             elif scheme == 'windspeed_Large1994':
-                self.assertAlmostEqual(o.elements.z.min(), -49.6, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -48.9, 1)
             elif scheme == 'windspeed_Sundby1983':
-                self.assertAlmostEqual(o.elements.z.min(), -51.45, 1)
+                self.assertAlmostEqual(o.elements.z.min(), -51.75, 1)
             elif scheme == 'constant':
                 self.assertAlmostEqual(o.elements.z.min(), -3.57, 1)
 

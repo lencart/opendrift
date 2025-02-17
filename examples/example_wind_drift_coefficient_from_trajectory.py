@@ -5,6 +5,7 @@ Retieving wind drift factor from trajectory
 """
 
 from datetime import datetime, timedelta
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import cmocean
@@ -39,9 +40,9 @@ ot.run(duration=timedelta(hours=12), time_step=600)
 
 #%%
 # Secondly, calculating the wind_drift_factor which reproduces the "observed" trajectory with minimal difference
-drifter_lons = ot.history['lon'][0]
-drifter_lats = ot.history['lat'][0]
-drifter_times = ot.get_time_array()[0]
+drifter_lons = ot.result.lon.squeeze()
+drifter_lats = ot.result.lat.squeeze()
+drifter_times = pd.to_datetime(ot.result.time).to_pydatetime()
 drifter={'lon': drifter_lons, 'lat': drifter_lats,
         'time': drifter_times, 'linewidth': 2, 'color': 'b', 'label': 'Synthetic drifter'}
 
