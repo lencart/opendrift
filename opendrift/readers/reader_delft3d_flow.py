@@ -12,7 +12,10 @@
 # You should have received a copy of the GNU General Public License
 # along with OpenDrift.  If not, see <https://www.gnu.org/licenses/>.
 #
-# Copyright 2015, Knut-Frode Dagestad, MET Norway
+# Opendrift is copyright 2015,  Knut-Frode Dagestad, MET Norway
+# 
+# This module is copyright 2024, João  Lencart e Silva,
+# Longline Environment, Ltd.
 
 import copy
 from bisect import bisect_left, bisect_right
